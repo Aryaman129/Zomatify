@@ -1,0 +1,18 @@
+{
+  "short_name": "Zomatify",
+  "name": "Zomatify - Campus Food Ordering",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#FF5A5F",
+  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "scope": "/",
+  "description": "Order food from your campus canteens with ease"
+}
