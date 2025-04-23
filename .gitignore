@@ -1,3 +1,6 @@
 node_modules
 .env
 .dist
+supabase_setup.sql
+.project
+log.txt
