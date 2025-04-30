@@ -24,6 +24,33 @@ Zomatify is a full-stack food ordering and delivery platform inspired by Zomato.
 - **Analytics**: View sales data, popular items, and other business metrics
 - **Interval-based Order Processing**: Process orders in batches at configurable intervals
 
+## What Makes Zomatify Unique
+
+While inspired by Zomato, Zomatify introduces several innovative features that set it apart:
+
+### For Restaurant Owners
+- **Interval-Based Order Processing**: Unlike Zomato's continuous order flow, Zomatify allows restaurants to process orders in timed intervals (e.g., every 10 minutes), helping kitchen staff manage workload more efficiently
+- **Advanced Queue Management System**: Restaurants can set maximum active order limits, cooling periods, and interval timing to prevent overwhelming the kitchen during peak hours
+- **User-Friendly Menu Management**: Simple drag-and-drop image uploading system that doesn't require external image hosting, making it easier for less tech-savvy restaurant owners
+- **Comprehensive Analytics Dashboard**: More detailed insights into sales patterns, popular items, and operational efficiency specifically tailored for small to medium-sized restaurants
+
+### For Customers
+- **Collaborative Group Ordering**: More advanced than Zomato's basic group ordering, allowing real-time collaboration, individual payment options, and synchronized delivery
+- **Smart Queue Position**: Transparent queue system that shows customers their position in line and estimated preparation time, reducing anxiety about wait times
+- **Scheduled Orders with Recurring Options**: Set up regular meal deliveries (daily, weekly) for convenience, a feature not available in most food delivery apps
+- **Real-Time Kitchen Updates**: More granular status updates showing exactly where your order is in the preparation process (e.g., "preparing", "in the oven", "packaging")
+
+### Technical Advantages
+- **Lightweight and Fast**: Built with performance in mind, Zomatify loads significantly faster than heavier commercial apps
+- **Privacy-Focused**: Less intrusive data collection compared to major delivery platforms
+- **Open-Source Foundation**: Built on accessible technologies that can be extended and customized by the community
+- **Simplified Backend**: Uses Supabase to dramatically reduce backend complexity while maintaining powerful features
+
+### Business Model Differences
+- **Lower Commission Structure**: Designed with smaller commission fees to help local restaurants retain more profit
+- **Direct Customer-Restaurant Relationship**: Encourages direct communication between restaurants and customers, building loyalty
+- **Focus on Local Communities**: Emphasis on neighborhood restaurants rather than large chains
+
 ## Tech Stack
 
 ### Frontend
