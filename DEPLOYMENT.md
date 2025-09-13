@@ -39,13 +39,35 @@ vercel --prod
    - Build Command: `npm run build`
    - Output Directory: `build`
 
-4. **Environment Variables**:
-   ```env
-   REACT_APP_SUPABASE_URL=https://your-project.supabase.co
-   REACT_APP_SUPABASE_ANON_KEY=your-anon-key
-   REACT_APP_API_BASE_URL=https://your-backend.vercel.app/api
-   REACT_APP_RAZORPAY_KEY_ID=rzp_live_xxxxxxxx
+4. **Environment Variables** (Set in Vercel Dashboard → Settings → Environment Variables):
+
+   **⚠️ CRITICAL**: Use ACTUAL values, not variable names or references!
+
    ```
+   REACT_APP_SUPABASE_URL = https://vounlslounuoasoniazo.supabase.co
+   REACT_APP_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZvdW5sc2xvdW51b2Fzb25pYXpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ4MDU1NDIsImV4cCI6MjA1MDM4MTU0Mn0.hXiSKD8KoAlWz-l2qfpnGX0VHlGwZ2JZGv4PHZA5nFs
+   REACT_APP_API_BASE_URL = https://your-backend.vercel.app/api
+   REACT_APP_RAZORPAY_KEY_ID = rzp_test_your_key_here
+   ```
+
+   **STEP-BY-STEP**:
+   1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
+   2. **DELETE** any existing variables that show errors
+   3. Click "Add New" for each variable
+   4. Enter the variable name exactly (e.g., `REACT_APP_SUPABASE_URL`)
+   5. Enter the ACTUAL value (e.g., `https://vounlslounuoasoniazo.supabase.co`)
+   6. Select all environments: Production, Preview, Development
+   7. Click "Save"
+   8. Repeat for all variables
+
+   **❌ NEVER USE**:
+   - `@supabase_url` or `@anything`
+   - `${VARIABLE_NAME}` 
+   - `supabase_url` (just the name)
+   
+   **✅ ALWAYS USE**:
+   - The actual URL/key value
+   - Copy directly from Supabase/Razorpay dashboards
 
 5. **Deploy**: Click "Deploy"
 
@@ -66,15 +88,22 @@ vercel --prod
    - Build Command: `npm install`
    - Output Directory: `` (leave empty for serverless functions)
 
-4. **Environment Variables**:
+4. **Environment Variables** (Set in Vercel Dashboard → Settings → Environment Variables):
    ```env
    NODE_ENV=production
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   SUPABASE_URL=https://your-project-id.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    RAZORPAY_KEY_ID=rzp_live_xxxxxxxx
    RAZORPAY_KEY_SECRET=your-secret-key
    ALLOWED_ORIGINS=https://your-frontend.vercel.app
    ```
+
+   **Important**: Use actual values, not variable references:
+   - `SUPABASE_URL`: Your actual Supabase project URL
+   - `SUPABASE_SERVICE_ROLE_KEY`: Your actual service role key from Supabase
+   - `RAZORPAY_KEY_ID`: Your actual Razorpay key ID
+   - `RAZORPAY_KEY_SECRET`: Your actual Razorpay secret key
+   - `ALLOWED_ORIGINS`: Your actual frontend URL
 
 5. **Deploy**: Click "Deploy"
 
@@ -169,6 +198,21 @@ FOR ALL USING (vendor_id IN (
 ## 🚨 Troubleshooting
 
 ### Common Issues
+
+#### Environment Variable Errors
+If you see errors like `Environment Variable "REACT_APP_SUPABASE_URL" references Secret "supabase_url", which does not exist`:
+
+**Solution**: In Vercel Dashboard → Settings → Environment Variables, enter **actual values**, not variable names:
+- ❌ Wrong: `supabase_url` or `${SUPABASE_URL}`
+- ✅ Correct: `https://abcdefghijk.supabase.co`
+
+**Steps to Fix**:
+1. Go to your Vercel project dashboard
+2. Click Settings → Environment Variables
+3. Delete any variables with placeholder values
+4. Add new variables with actual values from your services:
+   - Get Supabase URL and keys from [Supabase Dashboard](https://app.supabase.com) → Settings → API
+   - Get Razorpay keys from [Razorpay Dashboard](https://dashboard.razorpay.com) → Settings → API Keys
 
 #### Build Failures
 ```bash
