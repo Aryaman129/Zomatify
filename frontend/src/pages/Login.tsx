@@ -110,15 +110,15 @@ const FormFooter = styled.div`
   text-align: center;
   font-size: 14px;
   color: #666;
-  
+
   a {
-    color: #FF5A5F;
-    text-decoration: none;
-    font-weight: 600;
-    
-    &:hover {
-      text-decoration: underline;
-    }
+  color: #FF5A5F;
+  text-decoration: none;
+  font-weight: 600;
+  
+  &:hover {
+    text-decoration: underline;
+  }
   }
 `;
 
@@ -154,11 +154,11 @@ const Login: React.FC = () => {
       setLoading(false);
     }
   };
-
+  
   // Special handler for direct shopkeeper access
   const handleShopkeeperAccess = () => {
-    navigate('/dev-shopkeeper');
-    toast.info('Accessing development shopkeeper dashboard');
+    navigate('/vendor/login');
+    toast.info('Redirecting to vendor login');
   };
   
   return (
@@ -200,7 +200,7 @@ const Login: React.FC = () => {
           <SubmitButton type="submit" disabled={loading}>
             {loading ? 'Logging in...' : 'Login'}
           </SubmitButton>
-
+          
           <ShopkeeperButton type="button" onClick={handleShopkeeperAccess}>
             Shopkeeper Access
           </ShopkeeperButton>

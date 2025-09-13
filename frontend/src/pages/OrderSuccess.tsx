@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { motion } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FaCheckCircle, FaReceipt, FaArrowLeft, FaUtensils, FaHome } from 'react-icons/fa';
+import { FaCheckCircle, FaReceipt, FaArrowLeft, FaUtensils, FaHome, FaPrint, FaDownload } from 'react-icons/fa';
 import AppHeader from '../components/common/AppHeader';
 import { orderService } from '../services/api';
-import { Order } from '../types';
-import { formatCurrency, formatDate } from '../utils/formatters';
+import { Order } from '../types/index';
+import { formatCurrency, formatDate, normalizeOrder, formatId } from '../utils/formatters';
+import { toast } from 'react-toastify';
 
 const Container = styled.div`
   padding-bottom: 100px;
@@ -23,6 +24,126 @@ const SuccessCard = styled(motion.div)`
   text-align: center;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   margin-bottom: 24px;
+`;
+
+const ReceiptCard = styled(motion.div)`
+  background-color: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  margin-bottom: 24px;
+  border: 2px dashed #ddd;
+  position: relative;
+  
+  &:before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 20px;
+    right: 20px;
+    height: 1px;
+    background: repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 5px,
+      #ddd 5px,
+      #ddd 10px
+    );
+  }
+  
+  &:after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 20px;
+    right: 20px;
+    height: 1px;
+    background: repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 5px,
+      #ddd 5px,
+      #ddd 10px
+    );
+  }
+`;
+
+const ReceiptHeader = styled.div`
+  text-align: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #000;
+`;
+
+const BusinessName = styled.h2`
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #000;
+  margin-bottom: 5px;
+`;
+
+const ReceiptTitle = styled.h3`
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10px;
+`;
+
+const BillNumber = styled.div`
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #FF5A5F;
+  background: #f8f9fa;
+  padding: 10px 15px;
+  border-radius: 8px;
+  border: 2px solid #FF5A5F;
+  margin: 15px 0;
+  display: inline-block;
+`;
+
+const ReceiptInfo = styled.div`
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 0.9rem;
+`;
+
+const ReceiptActions = styled.div`
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  justify-content: center;
+`;
+
+const ActionButton = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: #FF5A5F;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  
+  &:hover {
+    background-color: #E8474C;
+  }
+  
+  &:active {
+    transform: scale(0.98);
+  }
+`;
+
+const SecondaryActionButton = styled(ActionButton)`
+  background-color: #6c757d;
+  
+  &:hover {
+    background-color: #565e64;
+  }
 `;
 
 const SuccessIcon = styled.div`
@@ -270,7 +391,7 @@ const OrderSuccess: React.FC = () => {
         const { success, data, error } = await orderService.getOrderById(orderId);
         
         if (success && data) {
-          setOrder(data);
+          setOrder(normalizeOrder(data));
         } else {
           console.error('Failed to fetch order details:', error);
         }
@@ -294,6 +415,115 @@ const OrderSuccess: React.FC = () => {
   
   const handleGoToMenu = () => {
     navigate('/menu');
+  };
+
+  // Generate receipt text for download
+  const generateReceiptText = () => {
+    if (!order) return '';
+    
+    const today = new Date();
+    const receiptText = `
+=====================================
+           ZOMATIFY RECEIPT
+=====================================
+
+Bill No: ${order.bill_number || 'N/A'}
+Order ID: ${formatId(order.id)}
+Date: ${formatDate(order.created_at, 'MMM dd, yyyy • h:mm a')}
+
+-------------------------------------
+Customer Details:
+-------------------------------------
+Name: ${order.delivery_address?.fullName || 'N/A'}
+Phone: ${order.delivery_address?.phone || 'N/A'}
+Address: ${order.delivery_address?.addressLine1 || 'N/A'}
+${order.delivery_address?.addressLine2 ? order.delivery_address.addressLine2 + '\n' : ''}
+${order.delivery_address?.landmark ? 'Landmark: ' + order.delivery_address.landmark + '\n' : ''}
+-------------------------------------
+Order Items:
+-------------------------------------
+${order.items.map((item, index) => {
+  const menuItem = item.menu_item;
+  const itemTotal = (menuItem?.price || 0) * item.quantity;
+  return `${index + 1}. ${menuItem?.name || 'Unknown item'}
+    Qty: ${item.quantity} x ₹${menuItem?.price || 0}
+    Amount: ₹${itemTotal.toFixed(2)}`;
+}).join('\n')}
+
+-------------------------------------
+Payment Summary:
+-------------------------------------
+Subtotal:        ₹${order.total_price.toFixed(2)}
+Delivery Fee:    ${order.total_price > 300 ? 'Free' : '₹30.00'}
+-------------------------------------
+Total Amount:    ₹${order.total_price.toFixed(2)}
+-------------------------------------
+
+Payment Method: ${order.payment_method === 'cod' ? 'Cash on Delivery' : 'Online Payment'}
+Payment Status: ${order.payment_status === 'paid' ? 'PAID' : order.payment_status?.toUpperCase()}
+
+${order.payment_status === 'paid' ? '✓ Payment confirmed via Razorpay' : ''}
+
+=====================================
+      Thank you for your order!
+     Visit us again at Zomatify
+=====================================
+
+Generated on: ${today.toLocaleDateString()} ${today.toLocaleTimeString()}
+`;
+    
+    return receiptText;
+  };
+
+  // Print receipt
+  const handlePrintReceipt = () => {
+    if (!order) return;
+    
+    const receiptContent = generateReceiptText();
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Receipt - Order #${order.bill_number || formatId(order.id)}</title>
+            <style>
+              body { 
+                font-family: 'Courier New', monospace; 
+                margin: 20px; 
+                font-size: 12px; 
+                line-height: 1.4;
+              }
+              pre { 
+                white-space: pre-wrap; 
+                word-wrap: break-word; 
+              }
+            </style>
+          </head>
+          <body>
+            <pre>${receiptContent}</pre>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  // Download receipt
+  const handleDownloadReceipt = () => {
+    if (!order) return;
+    
+    const receiptContent = generateReceiptText();
+    const blob = new Blob([receiptContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zomatify-receipt-${order.bill_number || formatId(order.id)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Receipt downloaded successfully!');
   };
   
   if (loading) {
@@ -347,46 +577,69 @@ const OrderSuccess: React.FC = () => {
             <SuccessIcon>
               <FaCheckCircle />
             </SuccessIcon>
-            <SuccessTitle>Order Placed!</SuccessTitle>
+            <SuccessTitle>Payment Successful!</SuccessTitle>
             <SuccessMessage>
-              Your order has been successfully placed and will be processed shortly.
+              Your order has been placed and payment confirmed. Your receipt is ready below.
             </SuccessMessage>
-            <OrderNumberText>Order #{order.id.substring(0, 8)}</OrderNumberText>
-            <OrderDateText>
-              {formatDate(order.created_at, 'MMM dd, yyyy • h:mm a')}
-            </OrderDateText>
           </SuccessCard>
-          
-          {/* Order Details Card */}
-          <OrderDetailsCard>
-            <SectionTitle>
-              <FaReceipt /> Order Details
+
+          {/* Enhanced Receipt Card */}
+          <ReceiptCard
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+          >
+            <ReceiptHeader>
+              <BusinessName>ZOMATIFY</BusinessName>
+              <ReceiptTitle>ORDER RECEIPT</ReceiptTitle>
+              <BillNumber>Bill #{order.bill_number || 'N/A'}</BillNumber>
+            </ReceiptHeader>
+
+            <ReceiptInfo>
+              <span><strong>Order ID:</strong></span>
+              <span>{formatId(order.id)}</span>
+            </ReceiptInfo>
+            <ReceiptInfo>
+              <span><strong>Date & Time:</strong></span>
+              <span>{formatDate(order.created_at, 'MMM dd, yyyy • h:mm a')}</span>
+            </ReceiptInfo>
+            <ReceiptInfo>
+              <span><strong>Customer:</strong></span>
+              <span>{order.delivery_address?.fullName || 'N/A'}</span>
+            </ReceiptInfo>
+            <ReceiptInfo>
+              <span><strong>Phone:</strong></span>
+              <span>{order.delivery_address?.phone || 'N/A'}</span>
+            </ReceiptInfo>
+            
+            <Divider style={{ margin: '15px 0' }} />
+            
+            <SectionTitle style={{ textAlign: 'left', marginBottom: '10px' }}>
+              <FaReceipt /> Items Ordered
             </SectionTitle>
             
             <OrderItemsList>
-              {order.items.map((item, index) => (
-                <OrderItem key={index}>
-                  <ItemDetails>
-                    <ItemQuantity>{item.quantity}x</ItemQuantity>
-                    <ItemName>{item.menuItem.name}</ItemName>
-                  </ItemDetails>
-                  <ItemPrice>
-                    {formatCurrency(item.menuItem.price * item.quantity)}
-                  </ItemPrice>
-                </OrderItem>
-              ))}
+              {order.items.map((item, index) => {
+                const menuItem = item.menu_item;
+                return (
+                  <OrderItem key={index}>
+                    <ItemDetails>
+                      <ItemQuantity>{item.quantity}x</ItemQuantity>
+                      <ItemName>{menuItem?.name || 'Unknown item'}</ItemName>
+                    </ItemDetails>
+                    <ItemPrice>
+                      {formatCurrency((menuItem?.price || 0) * item.quantity)}
+                    </ItemPrice>
+                  </OrderItem>
+                );
+              })}
             </OrderItemsList>
             
             <Divider />
             
             <OrderInfo>
               <InfoLabel>Subtotal</InfoLabel>
-              <InfoValue>{formatCurrency(order.total_price * 0.95)}</InfoValue>
-            </OrderInfo>
-            
-            <OrderInfo>
-              <InfoLabel>Tax (5%)</InfoLabel>
-              <InfoValue>{formatCurrency(order.total_price * 0.05)}</InfoValue>
+              <InfoValue>{formatCurrency(order.total_price)}</InfoValue>
             </OrderInfo>
             
             <OrderInfo>
@@ -396,40 +649,66 @@ const OrderSuccess: React.FC = () => {
               </InfoValue>
             </OrderInfo>
             
-            <TotalRow>
-              <InfoLabel>Total</InfoLabel>
-              <InfoValue>{formatCurrency(order.total_price)}</InfoValue>
+            <TotalRow style={{ borderTop: '2px solid #000', paddingTop: '10px', marginTop: '10px' }}>
+              <InfoLabel><strong>TOTAL AMOUNT</strong></InfoLabel>
+              <InfoValue><strong>{formatCurrency(order.total_price)}</strong></InfoValue>
             </TotalRow>
-          </OrderDetailsCard>
-          
-          {/* Payment Info Card */}
-          <PaymentInfoCard>
-            <SectionTitle>Payment Information</SectionTitle>
-            
-            <PaymentMethod>
-              <PaymentMethodName>
-                {order.payment_method === 'cod' ? 'Cash on Delivery' : 'Online Payment'}
-              </PaymentMethodName>
-              <PaymentStatus $status={order.payment_status}>
-                {order.payment_status === 'paid' ? 'Paid' : 
-                 order.payment_status === 'pending' ? 'Pending' : 'Failed'}
-              </PaymentStatus>
-            </PaymentMethod>
-          </PaymentInfoCard>
+
+            <ReceiptInfo style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #eee' }}>
+              <span><strong>Payment Method:</strong></span>
+              <span>{order.payment_method === 'cod' ? 'Cash on Delivery' : 'Online Payment'}</span>
+            </ReceiptInfo>
+            <ReceiptInfo>
+              <span><strong>Payment Status:</strong></span>
+              <span style={{ 
+                color: order.payment_status === 'paid' ? '#4CAF50' : '#FFC107',
+                fontWeight: 'bold'
+              }}>
+                {order.payment_status === 'paid' ? '✓ PAID' : order.payment_status?.toUpperCase()}
+              </span>
+            </ReceiptInfo>
+
+            {order.payment_status === 'paid' && (
+              <div style={{ 
+                marginTop: '15px', 
+                padding: '10px', 
+                backgroundColor: '#e8f5e8', 
+                borderRadius: '8px',
+                textAlign: 'center'
+              }}>
+                <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                  ✓ Payment Confirmed via Razorpay
+                </span>
+              </div>
+            )}
+
+            <ReceiptActions>
+              <ActionButton onClick={handlePrintReceipt}>
+                <FaPrint /> Print Receipt
+              </ActionButton>
+              <ActionButton onClick={handleDownloadReceipt}>
+                <FaDownload /> Download
+              </ActionButton>
+            </ReceiptActions>
+          </ReceiptCard>
           
           {/* Delivery Info Card */}
           <DeliveryCard>
             <SectionTitle>Delivery Information</SectionTitle>
             
-            <AddressLabel>Delivery Address:</AddressLabel>
-            <AddressValue>{order.delivery_address.fullName}</AddressValue>
-            <AddressValue>{order.delivery_address.phone}</AddressValue>
-            <AddressValue>{order.delivery_address.addressLine1}</AddressValue>
-            {order.delivery_address.addressLine2 && (
-              <AddressValue>{order.delivery_address.addressLine2}</AddressValue>
-            )}
-            {order.delivery_address.landmark && (
-              <AddressValue>Landmark: {order.delivery_address.landmark}</AddressValue>
+            {order.delivery_address && (
+              <>
+                <AddressLabel>Delivery Address:</AddressLabel>
+                <AddressValue>{order.delivery_address.fullName}</AddressValue>
+                <AddressValue>{order.delivery_address.phone}</AddressValue>
+                <AddressValue>{order.delivery_address.addressLine1}</AddressValue>
+                {order.delivery_address.addressLine2 && (
+                  <AddressValue>{order.delivery_address.addressLine2}</AddressValue>
+                )}
+                {order.delivery_address.landmark && (
+                  <AddressValue>Landmark: {order.delivery_address.landmark}</AddressValue>
+                )}
+              </>
             )}
           </DeliveryCard>
           
@@ -445,6 +724,25 @@ const OrderSuccess: React.FC = () => {
               <FaArrowLeft /> Back to Home
             </SecondaryButton>
           </ButtonsGroup>
+
+          {/* Order Status Info */}
+          <div style={{ 
+            marginTop: '20px', 
+            padding: '15px', 
+            backgroundColor: '#f8f9fa', 
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <p style={{ margin: '0 0 5px 0', fontWeight: 'bold', color: '#333' }}>
+              📋 Order Status: {order.status?.toUpperCase()}
+            </p>
+            <p style={{ margin: '0', fontSize: '0.9rem', color: '#666' }}>
+              {order.payment_status === 'paid' 
+                ? 'Payment held in escrow until vendor accepts your order'
+                : 'Complete payment to proceed with your order'
+              }
+            </p>
+          </div>
         </motion.div>
       </ContentSection>
     </Container>

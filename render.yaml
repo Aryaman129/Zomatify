@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: zomatify-backend
+    env: node
+    plan: starter
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5001
+      - key: SUPABASE_URL
+        fromGroup: supabase
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        fromGroup: supabase
+      - key: RAZORPAY_KEY_ID
+        fromGroup: razorpay
+      - key: RAZORPAY_KEY_SECRET
+        fromGroup: razorpay
+      - key: ALLOWED_ORIGINS
+        value: https://your-frontend-domain.vercel.app

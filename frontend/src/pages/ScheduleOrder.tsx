@@ -6,7 +6,7 @@ import { toast } from 'react-toastify';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
 import AppHeader from '../components/common/AppHeader';
-import { orderService } from '../services/api';
+import { orderService, paymentService } from '../services/api';
 
 const PageContainer = styled.div`
   padding-bottom: 80px;
@@ -36,6 +36,29 @@ const IntroText = styled.p`
   color: #666;
   margin-bottom: 24px;
   line-height: 1.5;
+`;
+
+const PlatformFeeNotice = styled.div`
+  background: #e8f5e8;
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  color: #2e7d32;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+const PickupTimeNotice = styled.div`
+  background: #fff3e0;
+  border: 1px solid #ff9800;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  color: #e65100;
+  font-size: 0.9rem;
 `;
 
 const FormGroup = styled.div`
@@ -236,28 +259,33 @@ const generateTimeSlots = (selectedDate: string): string[] => {
   const slots: string[] = [];
   const today = new Date().toISOString().split('T')[0];
   const isToday = selectedDate === today;
-  
-  // Start from 9 AM (or next hour from current time if today)
-  let startHour = 9;
-  const currentDate = new Date();
-  
-  if (isToday) {
-    const currentHour = currentDate.getHours();
-    // If current time is after 9 AM, start from next hour
-    if (currentHour >= 9) {
-      startHour = currentHour + 1;
-    }
+
+  if (!isToday) {
+    // For future dates, no slots available (pickup only for today)
+    return [];
   }
-  
-  // Generate slots until 8 PM (20:00)
-  for (let hour = startHour; hour <= 20; hour++) {
+
+  // For today, only show next 4 hours from current time
+  const currentHour = new Date().getHours();
+
+  // Start from next hour
+  let startHour = currentHour + 1;
+
+  // End 4 hours from now, but not after 8 PM
+  const maxEndHour = Math.min(startHour + 4, 20);
+
+  // If it's too late in the day, show no slots
+  if (startHour >= 20) {
+    return [];
+  }
+
+  // Generate slots until maxEndHour
+  for (let hour = startHour; hour < maxEndHour; hour++) {
     // Add slots for both hour and half-hour
     slots.push(`${hour}:00`);
-    if (hour < 20) {
-      slots.push(`${hour}:30`);
-    }
+    slots.push(`${hour}:30`);
   }
-  
+
   return slots;
 };
 
@@ -272,7 +300,7 @@ const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString(undefined, options);
 };
 
-const ScheduleOrderPage: React.FC = () => {
+const SelfPickupPage: React.FC = () => {
   const { items, totalPrice, clearCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -300,13 +328,10 @@ const ScheduleOrderPage: React.FC = () => {
     }
   }, [selectedDate]);
   
-  // Get minimum date (today)
-  const minDate = new Date().toISOString().split('T')[0];
-  
-  // Get maximum date (30 days from now)
-  const maxDate = new Date();
-  maxDate.setDate(maxDate.getDate() + 30);
-  const maxDateString = maxDate.toISOString().split('T')[0];
+  // Get today's date (only allow pickup for today)
+  const todayDate = new Date().toISOString().split('T')[0];
+  const minDate = todayDate;
+  const maxDateString = todayDate; // Same as min date - only today allowed
   
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSelectedDate(e.target.value);
@@ -320,18 +345,18 @@ const ScheduleOrderPage: React.FC = () => {
     navigate('/menu');
   };
   
-  const handleScheduleOrder = async () => {
+  const handleSelfPickupOrder = async () => {
     if (!user) {
-      toast.error('Please log in to schedule an order');
+      toast.error('Please log in to place a pickup order');
       navigate('/login');
       return;
     }
-    
+
     if (items.length === 0) {
       toast.error('Your cart is empty');
       return;
     }
-    
+
     if (!selectedDate || !selectedTime) {
       toast.error('Please select a pickup date and time');
       return;
@@ -339,43 +364,114 @@ const ScheduleOrderPage: React.FC = () => {
     
     try {
       setLoading(true);
-      
+
       // Create pickup time string in ISO format
       const pickupDateTime = new Date(`${selectedDate}T${selectedTime}:00`);
-      
+
+      // First, create the order with payment required
       const orderData = {
         user_id: user.id,
-        order_template: {
-          items: items,
-          total_price: totalPrice
-        },
-        schedule: {
-          frequency: 'once' as 'once' | 'daily' | 'weekly',
-          time: selectedTime,
-          start_date: selectedDate
-        },
-        is_active: true
+        vendor_id: items[0]?.menuItem?.vendor_id, // Get vendor_id from first item
+        items: items.map(item => ({
+          menu_item: item.menuItem,
+          quantity: item.quantity,
+          special_instructions: item.specialInstructions
+        })),
+        total_price: totalPrice + 2, // Add ₹2 platform fee for pickup
+        status: 'pending' as const,
+        payment_status: 'pending' as const,
+        payment_method: 'razorpay' as const,
+        order_type: 'pickup' as const,
+        scheduled_for: pickupDateTime.toISOString(),
+        delivery_address: {
+          fullName: user.user_metadata?.full_name || user.email || 'Customer',
+          phone: user.user_metadata?.phone || '',
+          addressLine1: 'Pickup Order',
+          addressLine2: '',
+          city: '',
+          state: '',
+          postalCode: '',
+          country: 'India'
+        }
       };
-      
-      const { success, data, error } = await orderService.createScheduledOrder(orderData);
-      
-      if (success && data) {
-        setIsOrderPlaced(true);
-        setScheduledOrderDetails({
-          id: data.id,
-          pickupDate: formatDate(selectedDate),
-          pickupTime: selectedTime,
-          total: totalPrice
-        });
-        clearCart();
-        toast.success('Your order has been scheduled!');
-      } else {
-        toast.error(error || 'Failed to schedule order');
+
+      // Create the order first
+      const orderResult = await orderService.createOrder(orderData);
+
+      if (!orderResult.success || !orderResult.data) {
+        throw new Error(orderResult.error || 'Failed to create order');
       }
+
+      const order = orderResult.data;
+
+      // Create Razorpay payment order (including ₹2 platform fee)
+      const totalWithPlatformFee = totalPrice + 2;
+      const paymentResponse = await paymentService.createRazorpayOrder(
+        totalWithPlatformFee,
+        String(order.id)
+      );
+
+      if (!paymentResponse.success || !paymentResponse.data) {
+        throw new Error(paymentResponse.error || 'Failed to create payment order');
+      }
+
+      // Set up Razorpay options
+      const options = {
+        key: process.env.REACT_APP_RAZORPAY_KEY_ID,
+        amount: paymentResponse.data.amount,
+        currency: 'INR',
+        name: 'Zomatify',
+        description: 'Scheduled Order Payment',
+        order_id: paymentResponse.data.id,
+        handler: async (response: any) => {
+          try {
+            // Verify payment
+            const verificationResponse = await paymentService.verifyRazorpayPayment(
+              response.razorpay_payment_id,
+              String(order.id),
+              response.razorpay_signature
+            );
+
+            if (verificationResponse.success) {
+              setIsOrderPlaced(true);
+              setScheduledOrderDetails({
+                id: order.id,
+                pickupDate: formatDate(selectedDate),
+                pickupTime: selectedTime,
+                total: totalPrice
+              });
+              clearCart();
+              toast.success('Payment successful! Your order has been scheduled!');
+            } else {
+              toast.error('Payment verification failed. Please contact support.');
+            }
+          } catch (error) {
+            console.error('Payment verification error:', error);
+            toast.error('Payment verification failed. Please contact support.');
+          }
+        },
+        prefill: {
+          name: user.user_metadata?.full_name || user.email,
+          contact: user.user_metadata?.phone || ''
+        },
+        theme: {
+          color: '#667eea'
+        }
+      };
+
+      // Check if Razorpay is loaded
+      if (!window.Razorpay) {
+        throw new Error('Razorpay SDK not loaded. Please refresh the page and try again.');
+      }
+
+      // Open Razorpay payment modal
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+      setLoading(false);
+
     } catch (error) {
       console.error('Error scheduling order:', error);
       toast.error('An unexpected error occurred');
-    } finally {
       setLoading(false);
     }
   };
@@ -387,20 +483,20 @@ const ScheduleOrderPage: React.FC = () => {
   
   return (
     <PageContainer>
-      <AppHeader title="Schedule Order" />
-      
+      <AppHeader title="Self Pickup" />
+
       <ContentContainer>
         {!isOrderPlaced ? (
           <>
             <Card>
               <SectionTitle>
                 <FaCalendarAlt style={{ marginRight: '10px' }} />
-                Schedule Your Pickup
+                Self Pickup Order
               </SectionTitle>
-              
+
               <IntroText>
-                Select a date and time when you'd like to pick up your order.
-                We'll have it ready for you!
+                Pay now and collect your order at your preferred time.
+                No delivery charges - just a ₹2 platform fee!
               </IntroText>
               
               <FormGroup>
@@ -458,14 +554,24 @@ const ScheduleOrderPage: React.FC = () => {
                   </ItemsList>
                   
                   <TotalSection>
-                    <span>Total Amount</span>
-                    <span>₹{calculateTotal().toFixed(2)}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span>Subtotal</span>
+                      <span>₹{totalPrice.toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.9rem', color: '#666' }}>
+                      <span>Platform Fee</span>
+                      <span>₹2.00</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '1.1rem', borderTop: '1px solid #eee', paddingTop: '8px' }}>
+                      <span>Total Amount</span>
+                      <span>₹{(totalPrice + 2).toFixed(2)}</span>
+                    </div>
                   </TotalSection>
                 </>
               ) : (
                 <EmptyCartMessage>
                   <p>Your cart is empty</p>
-                  <p>Add items to schedule an order</p>
+                  <p>Add items to place a pickup order</p>
                 </EmptyCartMessage>
               )}
               
@@ -474,11 +580,24 @@ const ScheduleOrderPage: React.FC = () => {
               </AddItemsButton>
             </CartOverview>
             
+            <PlatformFeeNotice>
+              <FaClock />
+              <div>
+                <strong>Self Pickup Service:</strong> Pay now and collect your order at the selected time.
+                Only ₹2 platform fee - no delivery charges!
+              </div>
+            </PlatformFeeNotice>
+
+            <PickupTimeNotice>
+              <strong>Note:</strong> Pickup times are available only within the next few hours.
+              Please select a time that works for you today.
+            </PickupTimeNotice>
+
             <ScheduleButton
-              onClick={handleScheduleOrder}
+              onClick={handleSelfPickupOrder}
               disabled={loading || items.length === 0 || !selectedDate || !selectedTime}
             >
-              <FaClock /> Schedule Order
+              <FaClock /> Pay & Confirm Pickup
             </ScheduleButton>
           </>
         ) : (
@@ -529,4 +648,4 @@ const ScheduleOrderPage: React.FC = () => {
   );
 };
 
-export default ScheduleOrderPage;
+export default SelfPickupPage;

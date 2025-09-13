@@ -11,10 +11,12 @@ const NavContainer = styled.nav`
   right: 0;
   display: flex;
   justify-content: space-around;
-  background-color: white;
+  background-color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: saturate(180%) blur(10px);
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   z-index: 100;
-  padding: 8px 0;
+  padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0));
   height: 65px;
 `;
 

@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import AppHeader from '../components/common/AppHeader';
 import { useAuth } from '../contexts/AuthContext';
 import { orderService } from '../services/api';
-import { Order } from '../types';
+import { Order } from '../types/index';
 import { toast } from 'react-toastify';
 
 const PageContainer = styled.div`
@@ -255,7 +255,7 @@ const OrderHistory: React.FC = () => {
                       <FaReceipt />
                     </OrderIcon>
                     <OrderDetails>
-                      <OrderId>Order #{order.id.slice(-6)}</OrderId>
+                      <OrderId>Order #{String(order.id).slice(-6)}</OrderId>
                       <OrderDate>
                         <FaCalendarAlt size={12} />
                         {formatOrderDate(order.created_at)}

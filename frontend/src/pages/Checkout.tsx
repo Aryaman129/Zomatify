@@ -7,9 +7,10 @@ import { toast } from 'react-toastify';
 import AppHeader from '../components/common/AppHeader';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
-import { orderService, paymentService, queueService } from '../services/api';
+import { orderService, paymentService, queueService, vendorPaymentService } from '../services/api';
 import supabase from '../services/supabaseClient';
-import { RazorpayOptions, RazorpayResponse, QueueStatus } from '../types';
+import { QueueStatus, RazorpayOptions, RazorpayResponse } from '../types/index';
+import { normalizeQueueStatus } from '../utils/normalizers';
 
 const CheckoutContainer = styled.div`
   padding-bottom: 100px;
@@ -361,15 +362,18 @@ const Checkout: React.FC = () => {
   // State for delivery address
   const [editingAddress, setEditingAddress] = useState(false);
   const [address, setAddress] = useState({
-    fullName: user?.first_name && user?.last_name ? `${user.first_name} ${user.last_name}` : '',
-    phone: user?.phone_number || '',
+    fullName: user?.user_metadata?.first_name && user?.user_metadata?.last_name ? `${user.user_metadata.first_name} ${user.user_metadata.last_name}` : '',
+    phone: user?.user_metadata?.phone_number || '',
     addressLine1: '',
     addressLine2: '',
     landmark: ''
   });
   
   // State for payment method
-  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'razorpay'>('cod');
+  const [paymentMethod, setPaymentMethod] = useState<'razorpay'>('razorpay');
+  
+  // State for order type
+  const [orderType, setOrderType] = useState<'delivery' | 'pickup'>('delivery');
   
   // State for order processing
   const [loading, setLoading] = useState(false);
@@ -405,7 +409,7 @@ const Checkout: React.FC = () => {
         const { success, data, error } = await queueService.getQueueStatus();
         
         if (success && data) {
-          setQueueStatus(data);
+          setQueueStatus(normalizeQueueStatus(data));
         } else {
           console.error('Error fetching queue status:', error);
         }
@@ -450,7 +454,7 @@ const Checkout: React.FC = () => {
   };
   
   // Select payment method
-  const handleSelectPayment = (method: 'cod' | 'razorpay') => {
+  const handleSelectPayment = (method: 'razorpay') => {
     setPaymentMethod(method);
   };
   
@@ -459,17 +463,26 @@ const Checkout: React.FC = () => {
     return totalPrice;
   };
   
-  const calculateTax = () => {
-    return calculateSubtotal() * 0.05; // 5% tax
+  const calculateServiceCharge = () => {
+    return 5; // Fixed 5Rs service charge
+  };
+  
+  const calculateServiceDiscount = () => {
+    return 2; // Fixed 2Rs discount (5Rs - 3Rs = 2Rs discount)
+  };
+  
+  const calculateNetServiceCharge = () => {
+    return calculateServiceCharge() - calculateServiceDiscount(); // 5Rs - 2Rs = 3Rs final charge
   };
   
   const calculateDeliveryFee = () => {
-    // Free delivery over ₹300, otherwise ₹30
+    // Free delivery over ₹300, otherwise ₹30 (only for delivery orders)
+    if (orderType === 'pickup') return 0;
     return calculateSubtotal() > 300 ? 0 : 30;
   };
   
   const calculateTotal = () => {
-    return calculateSubtotal() + calculateTax() + calculateDeliveryFee();
+    return calculateSubtotal() + calculateNetServiceCharge() + calculateDeliveryFee();
   };
   
   // Update handlePlaceOrder to use Razorpay integration
@@ -480,8 +493,8 @@ const Checkout: React.FC = () => {
       return;
     }
     
-    // Validate address
-    if (!address.fullName || !address.phone || !address.addressLine1) {
+    // Validate address only for delivery orders
+    if (orderType === 'delivery' && (!address.fullName || !address.phone || !address.addressLine1)) {
       toast.error('Please add a delivery address');
       setEditingAddress(true);
       return;
@@ -491,43 +504,86 @@ const Checkout: React.FC = () => {
       setLoading(true);
       
       // First check if we can accept more orders
-      if (queueStatus && !queueStatus.isAcceptingOrders) {
-        const message = queueStatus.cooldownRemaining 
-          ? `Our kitchen is at full capacity. Please try again in ${queueStatus.cooldownRemaining} minutes.`
-          : 'Sorry, our kitchen is at full capacity. Please try again in a few minutes.';
+      if (queueStatus && !queueStatus.is_accepting_orders) {
+        const message = queueStatus.cooldown_remaining
+          ? `Our kitchen is at full capacity. Please try again in ${queueStatus.cooldown_remaining} minutes.`
+          : 'Our kitchen is at full capacity. Please try again later.';
         
         toast.error(message);
         setLoading(false);
         return;
       }
       
+      // Convert CartItem[] to OrderItem[] by mapping the items
+      const orderItems = items.map(item => ({
+        menu_item_id: String(item.menuItem.id),
+        menu_item: item.menuItem,
+        quantity: item.quantity,
+        special_instructions: item.specialInstructions,
+        selected_options: item.selected_options
+      }));
+
+      // Get vendor_id from the first item (assuming all items are from the same vendor)
+      const vendorId = items.length > 0 ? items[0].menuItem.vendor_id : undefined;
+
+      console.log('Checkout - Cart items:', items.map(item => ({
+        name: item.menuItem.name,
+        vendor_id: item.menuItem.vendor_id
+      })));
+      console.log('Checkout - Identified vendor_id:', vendorId);
+
+      // Validate that all items are from the same vendor
+      const allSameVendor = items.every(item => item.menuItem.vendor_id === vendorId);
+      if (!allSameVendor) {
+        console.error('Items from different vendors detected:', items.map(item => ({
+          name: item.menuItem.name,
+          vendor_id: item.menuItem.vendor_id
+        })));
+        toast.error('All items must be from the same vendor');
+        return;
+      }
+
+      if (!vendorId) {
+        console.error('No vendor_id found in cart items:', items);
+        toast.error('Unable to identify vendor for this order. Please try adding items to cart again.');
+        return;
+      }
+
       const orderData = {
         user_id: user.id,
-        items,
+        vendor_id: vendorId, // Add vendor_id to link order to specific vendor
+        items: orderItems, // Use converted items
         total_price: calculateTotal(),
         status: 'pending' as const,
         payment_status: 'pending' as const,
         payment_method: paymentMethod,
-        delivery_address: {
+        order_type: orderType, // Add order type
+        delivery_address: orderType === 'delivery' ? {
           fullName: address.fullName,
           phone: address.phone,
           addressLine1: address.addressLine1,
           addressLine2: address.addressLine2,
           landmark: address.landmark
+        } : {
+          fullName: 'PICKUP',
+          phone: 'N/A',
+          addressLine1: 'Customer Pickup',
+          addressLine2: '',
+          landmark: ''
         }
       };
       
       const { success, data, error } = await orderService.createOrder(orderData);
       
       if (success && data) {
-        setOrderId(data.id);
+        setOrderId(String(data.id));
         
         // Handle payment based on the selected method
         if (paymentMethod === 'razorpay') {
-          // Create Razorpay order
+          // Create Razorpay order and convert order ID to string
           const paymentResponse = await paymentService.createRazorpayOrder(
             calculateTotal(),
-            data.id
+            String(data.id)
           );
           
           if (!paymentResponse.success || !paymentResponse.data) {
@@ -538,12 +594,11 @@ const Checkout: React.FC = () => {
           
           // Initialize Razorpay payment
           const options: RazorpayOptions = {
-            key: process.env.REACT_APP_RAZORPAY_KEY_ID || 'rzp_test_yourkeyhere',
+            key: process.env.REACT_APP_RAZORPAY_KEY_ID!,
             amount: Math.round(calculateTotal() * 100), // Amount in paisa
-            currency: 'INR',
             name: 'Zomatify',
-            description: `Order #${data.id.substring(0, 8)}`,
-            order_id: paymentResponse.data.id,
+            description: `Order #${String(data.id).substring(0, 8)}`,
+            order_id: String(paymentResponse.data.id),
             handler: async function (response: RazorpayResponse) {
               try {
                 // Verify payment with backend
@@ -556,20 +611,24 @@ const Checkout: React.FC = () => {
                 if (verifyResponse.success && verifyResponse.data?.verified) {
                   // Update payment status
                   await paymentService.updatePaymentStatus(
-                    data.id,
+                    String(data.id),
                     response.razorpay_payment_id,
                     'paid'
                   );
-                  
-                  // Clear cart and navigate to success page
-                  clearCart();
-                  navigate(`/order-success/${data.id}`);
-                  
-                  // Show queue position in the success message
-                  if (data.queue_position) {
-                    toast.success(`Order placed successfully! Your position in queue: ${data.queue_position}`);
-                  } else {
-                    toast.success('Order placed successfully!');
+
+                  // Do NOT create vendor payment distribution here
+                  // Payment will be held in escrow until vendor accepts the order
+                  console.log('Payment verified and held in escrow for order:', String(data.id));
+
+        // Clear cart and navigate to success page
+        clearCart();
+        navigate(`/order-success/${String(data.id)}`);
+
+        // Show queue position in the success message
+        if (data.queue_position) {
+          toast.success(`Payment successful! Order placed in queue: ${data.queue_position}`);
+        } else {
+          toast.success('Payment successful! Your receipt is ready.');
                   }
                 } else {
                   toast.error('Payment verification failed. Please contact support.');
@@ -597,7 +656,7 @@ const Checkout: React.FC = () => {
         } else {
           // Cash on delivery - just place the order
           clearCart();
-          navigate(`/order-success/${data.id}`);
+          navigate(`/order-success/${String(data.id)}`);
           
           // Show queue position in the success message
           if (data.queue_position) {
@@ -635,15 +694,15 @@ const Checkout: React.FC = () => {
         </SectionTitle>
         <CardContent>
           <StatusInfo>
-            Current Active Orders: <StatusValue>{queueStatus.currentPosition} / {queueStatus.maxActiveOrders}</StatusValue>
+            Current Active Orders: <StatusValue>{queueStatus.current_position} / {queueStatus.max_active_orders}</StatusValue>
           </StatusInfo>
           <StatusInfo>
-            Estimated Wait Time: <StatusValue>{queueStatus.estimatedWaitTime} minutes</StatusValue>
+            Real-time Users: <StatusValue>{(queueStatus as any).real_time_users || 0} online</StatusValue>
           </StatusInfo>
-          {!queueStatus.isAcceptingOrders && queueStatus.cooldownRemaining && (
+          {!queueStatus.is_accepting_orders && queueStatus.cooldown_remaining && (
             <StatusWarning>
               Our kitchen is currently at full capacity. 
-              New orders will be accepted in {queueStatus.cooldownRemaining} minutes.
+              New orders will be accepted in {queueStatus.cooldown_remaining} minutes.
             </StatusWarning>
           )}
         </CardContent>
@@ -661,11 +720,12 @@ const Checkout: React.FC = () => {
           initial="hidden"
           animate="visible"
         >
-          {/* Delivery Address */}
-          <AddressCard>
-            <AddressHeader>
-              <AddressTitle>
-                <FaMapMarkerAlt style={{ marginRight: '8px' }} />
+          {/* Delivery Address - Only for delivery orders */}
+          {orderType === 'delivery' && (
+            <AddressCard>
+              <AddressHeader>
+                <AddressTitle>
+                  <FaMapMarkerAlt style={{ marginRight: '8px' }} />
                 Delivery Address
               </AddressTitle>
               {!editingAddress && (
@@ -755,30 +815,56 @@ const Checkout: React.FC = () => {
               </AddressForm>
             )}
           </AddressCard>
+          )}
           
-          {/* Payment Method */}
-          <PaymentCard>
-            <SectionTitle>Payment Method</SectionTitle>
+          {/* Order Type Selection */}
+          <Card>
+            <SectionTitle>Order Type</SectionTitle>
             
             <PaymentOptionsContainer>
               <PaymentOption
-                $isSelected={paymentMethod === 'cod'}
-                onClick={() => handleSelectPayment('cod')}
+                $isSelected={orderType === 'delivery'}
+                onClick={() => setOrderType('delivery')}
               >
                 <PaymentIcon>
-                  <FaMoneyBillWave />
+                  <FaMapMarkerAlt />
                 </PaymentIcon>
                 <PaymentInfo>
-                  <PaymentTitle>Cash on Delivery</PaymentTitle>
-                  <PaymentDescription>Pay when your order arrives</PaymentDescription>
+                  <PaymentTitle>Delivery</PaymentTitle>
+                  <PaymentDescription>Get it delivered to your address</PaymentDescription>
                 </PaymentInfo>
-                {paymentMethod === 'cod' && (
+                {orderType === 'delivery' && (
                   <CheckIcon>
                     <FaCheck size={20} />
                   </CheckIcon>
                 )}
               </PaymentOption>
               
+              <PaymentOption
+                $isSelected={orderType === 'pickup'}
+                onClick={() => setOrderType('pickup')}
+              >
+                <PaymentIcon>
+                  <FaHourglass />
+                </PaymentIcon>
+                <PaymentInfo>
+                  <PaymentTitle>Pickup</PaymentTitle>
+                  <PaymentDescription>Pick up from restaurant</PaymentDescription>
+                </PaymentInfo>
+                {orderType === 'pickup' && (
+                  <CheckIcon>
+                    <FaCheck size={20} />
+                  </CheckIcon>
+                )}
+              </PaymentOption>
+            </PaymentOptionsContainer>
+          </Card>
+          
+          {/* Payment Method */}
+          <PaymentCard>
+            <SectionTitle>Payment Method</SectionTitle>
+            
+            <PaymentOptionsContainer>
               <PaymentOption
                 $isSelected={paymentMethod === 'razorpay'}
                 onClick={() => handleSelectPayment('razorpay')}
@@ -833,16 +919,25 @@ const Checkout: React.FC = () => {
               </SummaryRow>
               
               <SummaryRow>
-                <SummaryLabel>Tax (5%)</SummaryLabel>
-                <SummaryValue>{formatCurrency(calculateTax())}</SummaryValue>
-              </SummaryRow>
-              
-              <SummaryRow>
-                <SummaryLabel>Delivery Fee</SummaryLabel>
-                <SummaryValue>
-                  {calculateDeliveryFee() === 0 ? 'Free' : formatCurrency(calculateDeliveryFee())}
+                <SummaryLabel>Service Charge</SummaryLabel>
+                <SummaryValue style={{ color: '#28a745', fontWeight: 'bold' }}>
+                  <span style={{ textDecoration: 'line-through', color: '#999', marginRight: '8px', fontSize: '0.9em' }}>
+                    {formatCurrency(calculateServiceCharge())}
+                  </span>
+                  <span style={{ color: '#28a745' }}>
+                    {formatCurrency(calculateNetServiceCharge())}
+                  </span>
                 </SummaryValue>
               </SummaryRow>
+              
+              {orderType === 'delivery' && (
+                <SummaryRow>
+                  <SummaryLabel>Delivery Fee</SummaryLabel>
+                  <SummaryValue>
+                    {calculateDeliveryFee() === 0 ? 'Free' : formatCurrency(calculateDeliveryFee())}
+                  </SummaryValue>
+                </SummaryRow>
+              )}
               
               <TotalRow>
                 <SummaryLabel>Total Amount</SummaryLabel>
@@ -854,7 +949,7 @@ const Checkout: React.FC = () => {
           {/* Action Buttons */}
           <PlaceOrderButton
             onClick={handlePlaceOrder}
-            disabled={loading || editingAddress || !address.addressLine1}
+            disabled={loading || editingAddress || (orderType === 'delivery' && !address.addressLine1)}
           >
             {loading ? 'Processing...' : 'Place Order'}
           </PlaceOrderButton>

@@ -204,27 +204,35 @@ const TotalRow = styled(SummaryRow)`
 
 const CheckoutButton = styled.button`
   width: 100%;
-  background-color: #FF5A5F;
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
   color: white;
   border: none;
-  border-radius: 12px;
-  padding: 18px;
-  font-size: 1.2rem;
+  border-radius: 8px;
+  padding: 14px 20px;
+  font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  box-shadow: 0 4px 8px rgba(255, 90, 95, 0.2);
-  
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
+  transition: all 0.3s ease;
+
   &:hover {
-    background-color: #E54B50;
+    background: linear-gradient(135deg, #218838 0%, #1e7e34 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(40, 167, 69, 0.3);
   }
-  
+
+  &:active {
+    transform: translateY(0);
+  }
+
   &:disabled {
-    background-color: #ccc;
+    background: #6c757d;
     cursor: not-allowed;
+    transform: none;
     box-shadow: none;
   }
 `;
@@ -277,10 +285,13 @@ const BottomActions = styled.div`
   left: 0;
   right: 0;
   background-color: white;
-  padding: 20px;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  padding: 25px 20px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
   border-top-left-radius: 20px;
   border-top-right-radius: 20px;
+  z-index: 1000;
+  max-width: 1200px;
+  margin: 0 auto;
 `;
 
 // Animation variants
@@ -311,18 +322,18 @@ const Cart: React.FC = () => {
   const navigate = useNavigate();
   const [note, setNote] = useState('');
   
-  const handleRemoveItem = (id: string) => {
-    removeItem(id);
+  const handleRemoveItem = (id: string | number) => {
+    removeItem(String(id));
     toast.success('Item removed from cart');
   };
   
-  const handleUpdateQuantity = (id: string, currentQuantity: number, delta: number) => {
+  const handleUpdateQuantity = (id: string | number, currentQuantity: number, delta: number) => {
     const newQuantity = currentQuantity + delta;
-    if (newQuantity < 1) {
+    if (newQuantity <= 0) {
       handleRemoveItem(id);
-      return;
+    } else {
+      updateItemQuantity(String(id), newQuantity);
     }
-    updateItemQuantity(id, newQuantity);
   };
   
   const handleBrowseMenu = () => {
@@ -363,17 +374,13 @@ const Cart: React.FC = () => {
     return totalPrice;
   };
   
-  const calculateTax = () => {
-    return calculateSubtotal() * 0.05; // 5% tax
-  };
-  
   const calculateDeliveryFee = () => {
     // Free delivery over ₹300, otherwise ₹30
     return calculateSubtotal() > 300 ? 0 : 30;
   };
   
   const calculateTotal = () => {
-    return calculateSubtotal() + calculateTax() + calculateDeliveryFee();
+    return calculateSubtotal() + calculateDeliveryFee();
   };
   
   if (items.length === 0) {
@@ -419,24 +426,33 @@ const Cart: React.FC = () => {
                     <ItemPrice>₹{item.menuItem.price.toFixed(2)}</ItemPrice>
                     
                     <QuantityControl>
-                      <QuantityButton 
-                        onClick={() => handleUpdateQuantity(item.menuItem.id, item.quantity, -1)}
+                      <QuantityButton
+                        onClick={() => {
+                          console.log('Decreasing quantity for cart item:', item.id, 'current:', item.quantity);
+                          handleUpdateQuantity(item.id, item.quantity, -1);
+                        }}
                         aria-label="Decrease quantity"
                       >
                         <FaMinus size={14} />
                       </QuantityButton>
                       <Quantity>{item.quantity}</Quantity>
-                      <QuantityButton 
-                        onClick={() => handleUpdateQuantity(item.menuItem.id, item.quantity, 1)}
+                      <QuantityButton
+                        onClick={() => {
+                          console.log('Increasing quantity for cart item:', item.id, 'current:', item.quantity);
+                          handleUpdateQuantity(item.id, item.quantity, 1);
+                        }}
                         aria-label="Increase quantity"
                       >
                         <FaPlus size={14} />
                       </QuantityButton>
                     </QuantityControl>
                   </ItemDetails>
-                  
-                  <RemoveButton 
-                    onClick={() => handleRemoveItem(item.menuItem.id)}
+
+                  <RemoveButton
+                    onClick={() => {
+                      console.log('Removing cart item:', item.id, 'menuItem:', item.menuItem.name);
+                      handleRemoveItem(item.id);
+                    }}
                     aria-label={`Remove ${item.menuItem.name} from cart`}
                   >
                     <FaTrash size={18} />
@@ -453,11 +469,6 @@ const Cart: React.FC = () => {
           <SummaryRow>
             <SummaryLabel>Subtotal</SummaryLabel>
             <SummaryValue>₹{calculateSubtotal().toFixed(2)}</SummaryValue>
-          </SummaryRow>
-          
-          <SummaryRow>
-            <SummaryLabel>Tax (5%)</SummaryLabel>
-            <SummaryValue>₹{calculateTax().toFixed(2)}</SummaryValue>
           </SummaryRow>
           
           <SummaryRow>
@@ -496,25 +507,12 @@ const Cart: React.FC = () => {
         
         <Divider />
         
-        <textarea
-          placeholder="Add any special instructions for your order..."
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '12px',
-            borderRadius: '8px',
-            border: '1px solid #ddd',
-            fontSize: '1rem',
-            minHeight: '80px',
-            resize: 'vertical'
-          }}
-        />
+
       </ContentSection>
       
       <BottomActions>
         <CheckoutButton onClick={handleCheckout}>
-          Proceed to Checkout <FaArrowRight />
+          🛒 CHECKOUT NOW <FaArrowRight />
         </CheckoutButton>
       </BottomActions>
     </CartContainer>

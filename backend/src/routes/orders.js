@@ -1,0 +1,162 @@
+const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
+const router = express.Router();
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+// Create a new order
+router.post('/', async (req, res) => {
+  try {
+    const orderData = req.body;
+
+    // Validate required fields
+    if (!orderData.user_id || !orderData.vendor_id || !orderData.items || !orderData.total_price) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: user_id, vendor_id, items, or total_price'
+      });
+    }
+
+    // Generate sequential bill number for the vendor
+    let billNumber = 1;
+    if (orderData.vendor_id) {
+      const { data: lastOrder } = await supabase
+        .from('orders')
+        .select('bill_number')
+        .eq('vendor_id', orderData.vendor_id)
+        .order('bill_number', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (lastOrder && lastOrder.bill_number) {
+        billNumber = lastOrder.bill_number + 1;
+      }
+    }
+
+    // Prepare order payload
+    const payload = {
+      user_id: orderData.user_id,
+      vendor_id: orderData.vendor_id,
+      items: orderData.items,
+      total_price: parseFloat(orderData.total_price),
+      status: orderData.status || 'pending',
+      payment_status: orderData.payment_status || 'pending',
+      payment_method: orderData.payment_method || 'cod',
+      payment_id: orderData.payment_id,
+      delivery_address: orderData.delivery_address,
+      scheduled_for: orderData.scheduled_for,
+      special_instructions: orderData.special_instructions,
+      group_order_id: orderData.group_order_id,
+      queue_position: orderData.queue_position,
+      bill_number: billNumber,
+      bill_date: new Date().toISOString().split('T')[0], // Date only
+      order_type: orderData.order_type || 'delivery'
+    };
+
+    // Insert order using service role (bypasses RLS)
+    const { data, error } = await supabase
+      .from('orders')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating order:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      data: data
+    });
+
+  } catch (error) {
+    console.error('Error in order creation:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create order'
+    });
+  }
+});
+
+// Get order by ID
+router.get('/:orderId', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    if (error) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: data
+    });
+
+  } catch (error) {
+    console.error('Error fetching order:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch order'
+    });
+  }
+});
+
+// Update order status
+router.patch('/:orderId/status', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status, payment_status } = req.body;
+
+    const updateData = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (status) updateData.status = status;
+    if (payment_status) updateData.payment_status = payment_status;
+
+    const { data, error } = await supabase
+      .from('orders')
+      .update(updateData)
+      .eq('id', orderId)
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found or update failed'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: data
+    });
+
+  } catch (error) {
+    console.error('Error updating order:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update order'
+    });
+  }
+});
+
+module.exports = router;

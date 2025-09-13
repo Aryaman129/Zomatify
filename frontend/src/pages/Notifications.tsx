@@ -7,7 +7,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import AppHeader from '../components/common/AppHeader';
 import { useAuth } from '../contexts/AuthContext';
 import { notificationService } from '../services/api';
-import { Notification, NotificationType } from '../types';
+import { Notification, NotificationType } from '../types/index';
 import { subscribeToRealtimeUpdates } from '../services/supabaseClient';
 import { toast } from 'react-toastify';
 import supabase from '../services/supabaseClient';

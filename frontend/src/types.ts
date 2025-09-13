@@ -9,6 +9,7 @@ export interface QueueStatus {
   current_position: number;
   cooldown_remaining?: number;
   max_orders_per_batch?: number;
+  real_time_users?: number;
 }
 
 export interface MenuItem {

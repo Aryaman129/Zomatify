@@ -284,32 +284,42 @@ const AnalyticsDashboard: React.FC = () => {
           
         if (customersError) throw customersError;
         
-        // Get popular items
-        const { data: orderItems, error: itemsError } = await supabase
-          .from('order_items')
-          .select('menu_item_id, menu_item:menu_items(name), quantity, price')
+        // Get popular items from orders.items JSONB column
+        const { data: ordersWithItems, error: itemsError } = await supabase
+          .from('orders')
+          .select('items')
           .gte('created_at', startDateStr)
-          .order('quantity', { ascending: false });
+          .not('items', 'is', null);
           
         if (itemsError) throw itemsError;
         
-        // Process the popular items
-        const popularItems = orderItems ? 
-          orderItems.reduce((acc: any[], item: any) => {
-            const existingItem = acc.find((i: any) => i.id === item.menu_item_id);
-            if (existingItem) {
-              existingItem.quantity += item.quantity;
-              existingItem.revenue += item.price * item.quantity;
+        // Process the popular items from orders.items JSONB
+        const itemCounts: { [key: string]: { name: string, quantity: number, revenue: number } } = {};
+        
+        ordersWithItems?.forEach((order: any) => {
+          order.items?.forEach((item: any) => {
+            const menuItemId = item.menu_item_id;
+            const menuItemName = item.menu_item?.name || 'Unknown Item';
+            const price = item.menu_item?.price || 0;
+            const quantity = item.quantity || 0;
+            
+            if (itemCounts[menuItemId]) {
+              itemCounts[menuItemId].quantity += quantity;
+              itemCounts[menuItemId].revenue += price * quantity;
             } else {
-              acc.push({
-                id: item.menu_item_id,
-                name: item.menu_item?.name || 'Unknown Item',
-                quantity: item.quantity,
-                revenue: item.price * item.quantity
-              });
+              itemCounts[menuItemId] = {
+                name: menuItemName,
+                quantity: quantity,
+                revenue: price * quantity
+              };
             }
-            return acc;
-          }, []).slice(0, 5) : [];
+          });
+        });
+        
+        const popularItems = Object.entries(itemCounts)
+          .map(([id, data]) => ({ id, ...data }))
+          .sort((a, b) => b.quantity - a.quantity)
+          .slice(0, 5);
         
         // Get order status distribution
         const orderStatusDistribution = {
@@ -394,10 +404,10 @@ const AnalyticsDashboard: React.FC = () => {
           popularItems,
           recentOrders,
           queueStatus: {
-            activeOrders: activeOrders.length,
+          activeOrders: activeOrders.length,
             maxCapacity: queueSettings.max_active_orders || 50,
             capacityPercentage: (activeOrders.length / (queueSettings.max_active_orders || 50)) * 100,
-            isAcceptingOrders: queueSettings.is_accepting_orders,
+          isAcceptingOrders: queueSettings.is_accepting_orders,
             nextInterval: queueSettings.next_interval_time,
             ordersInLastHour,
             averageWaitTime: 15 * Math.ceil(activeOrders.length / 3) // 15 min avg * orders/3 staff
@@ -455,25 +465,25 @@ const AnalyticsDashboard: React.FC = () => {
         {/* Time range filter */}
         <TimeFilter>
           <FilterButton 
-            $active={timeRange === 'today'} 
+            $active={timeRange === 'today'}
             onClick={() => handleTimeRangeChange('today')}
           >
             Today
           </FilterButton>
           <FilterButton 
-            $active={timeRange === 'week'} 
+            $active={timeRange === 'week'}
             onClick={() => handleTimeRangeChange('week')}
           >
             Last 7 Days
           </FilterButton>
           <FilterButton 
-            $active={timeRange === 'month'} 
+            $active={timeRange === 'month'}
             onClick={() => handleTimeRangeChange('month')}
           >
             Last 30 Days
           </FilterButton>
           <FilterButton 
-            $active={timeRange === 'year'} 
+            $active={timeRange === 'year'}
             onClick={() => handleTimeRangeChange('year')}
           >
             Last Year
@@ -534,9 +544,9 @@ const AnalyticsDashboard: React.FC = () => {
                 <tbody>
                   {analyticsData?.popularItems?.length ? (
                     analyticsData.popularItems.map((item, index) => (
-                      <tr key={index}>
-                        <TableCell>{item.name}</TableCell>
-                        <TableCell>{item.quantity}</TableCell>
+                    <tr key={index}>
+                      <TableCell>{item.name}</TableCell>
+                      <TableCell>{item.quantity}</TableCell>
                         <TableCell>{formatCurrency(item.revenue)}</TableCell>
                       </tr>
                     ))

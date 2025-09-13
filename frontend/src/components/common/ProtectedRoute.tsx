@@ -40,11 +40,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   // Role check if required
-  if (requiredRole && user.role !== requiredRole) {
-    console.log(`User role ${user.role} doesn't match required role ${requiredRole}`);
+  if (requiredRole && user.user_metadata?.role !== requiredRole) {
+    console.log(`User role ${user.user_metadata?.role} doesn't match required role ${requiredRole}`);
     
     // Redirect to appropriate page based on role
-    if (user.role === 'shopkeeper') {
+    if (user.user_metadata?.role === 'shopkeeper') {
       return <Navigate to="/shopkeeper" replace />;
     } else {
       return <Navigate to="/" replace />;

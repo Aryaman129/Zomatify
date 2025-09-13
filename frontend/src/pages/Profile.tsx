@@ -177,9 +177,9 @@ const Profile: React.FC = () => {
         const success = true;
         const data = {
           id: user.id,
-          name: `${user.first_name} ${user.last_name}`,
-          email: user.email,
-          phone: user.phone_number,
+          name: `${user.user_metadata?.first_name || ''} ${user.user_metadata?.last_name || ''}`.trim(),
+          email: user.email || '',
+          phone: user.user_metadata?.phone_number,
           address: ''
         };
         const error = null;
@@ -229,7 +229,7 @@ const Profile: React.FC = () => {
           <ProfileAvatar>
             <FaUser />
           </ProfileAvatar>
-          <ProfileName>{profile?.name || `${user.first_name} ${user.last_name}` || 'User'}</ProfileName>
+          <ProfileName>{profile?.name || `${user.user_metadata?.first_name || ''} ${user.user_metadata?.last_name || ''}`.trim() || 'User'}</ProfileName>
           <ProfileEmail>{profile?.email || user.email}</ProfileEmail>
         </ProfileHeader>
         
@@ -242,7 +242,7 @@ const Profile: React.FC = () => {
               </FieldIcon>
               <FieldContent>
                 <FieldLabel>Full Name</FieldLabel>
-                <FieldValue>{profile?.name || `${user.first_name} ${user.last_name}` || 'Not provided'}</FieldValue>
+                <FieldValue>{profile?.name || `${user.user_metadata?.first_name || ''} ${user.user_metadata?.last_name || ''}`.trim() || 'Not provided'}</FieldValue>
               </FieldContent>
             </ProfileField>
             

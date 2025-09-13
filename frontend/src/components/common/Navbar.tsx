@@ -165,13 +165,6 @@ const Navbar: React.FC = () => {
               <LinkIcon><FaHistory /></LinkIcon>
               <LinkText>Orders</LinkText>
             </NavLink>
-            
-            {user.role === 'shopkeeper' && (
-              <NavLink to="/shopkeeper">
-                <LinkIcon><FaStore /></LinkIcon>
-                <LinkText>Shopkeeper</LinkText>
-              </NavLink>
-            )}
           </>
         )}
       </NavLinks>

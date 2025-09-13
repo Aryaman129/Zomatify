@@ -1,11 +1,10 @@
 import supabase from './supabaseClient';
-import { 
-  User, 
-  MenuItem, 
-  Order, 
-  OrderStatus, 
-  GroupOrder, 
-  ScheduledOrder, 
+import {
+  User,
+  MenuItem,
+  Order,
+  OrderStatus,
+  ScheduledOrder,
   Notification,
   ApiResponse,
   CartItem,
@@ -13,7 +12,9 @@ import {
   PaymentResponse,
   PaymentStatus,
   QueueStatus
-} from '../types';
+} from '../types/index';
+import { normalizeQueueStatus, normalizeOrderItems } from '../utils/formatters';
+import { normalizeMenuItem } from '../utils/normalizers';
 
 interface QueueSettings {
   max_active_orders: number;
@@ -199,20 +200,24 @@ export const authService = {
 // Menu Services
 export const menuService = {
   // Get all menu items
-  async getMenuItems(): Promise<ApiResponse<MenuItem[]>> {
+  async getMenuItems(vendorId?: string): Promise<ApiResponse<MenuItem[]>> {
     try {
-      const { data, error } = await retryRequest<MenuItem[]>(() =>
-        supabase
-          .from('menu_items')
-          .select('*')
-          .order('category', { ascending: true })
-      );
+      let query = supabase
+        .from('menu_items')
+        .select('*')
+        .order('category', { ascending: true });
+
+      if (vendorId) {
+        query = query.eq('vendor_id', vendorId);
+      }
+
+      const { data, error } = await retryRequest<MenuItem[]>(() => query);
 
       if (error) throw error;
 
       return {
         success: true,
-        data: data || []
+        data: (data || []).map(item => normalizeMenuItem(item))
       };
     } catch (error) {
       console.error('Error fetching menu items:', error);
@@ -291,17 +296,116 @@ export const menuService = {
         error: error.message
       };
     }
+  },
+
+  updateMenuItem: async (menuItem: Partial<MenuItem> & { id?: number }): Promise<MenuItem | null> => {
+    try {
+      if (!menuItem.id) {
+        // Create new menu item
+        const { data, error } = await supabase
+          .from('menu_items')
+          .insert([menuItem])
+          .select()
+          .single();
+        
+        if (error) throw error;
+        return data;
+      } else {
+        // Update existing menu item
+        const { data, error } = await supabase
+          .from('menu_items')
+          .update(menuItem)
+          .eq('id', menuItem.id)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        return data;
+      }
+    } catch (error) {
+      console.error('Error updating menu item:', error);
+      return null;
+    }
   }
 };
 
 // Order Services
 export const orderService = {
-  // Create a new order
+  // Create a new order via backend API
   async createOrder(order: Omit<Order, 'id' | 'created_at' | 'updated_at'>): Promise<ApiResponse<Order>> {
     try {
+      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(order)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        return {
+          success: false,
+          error: result.error || 'Failed to create order'
+        };
+      }
+
+      return {
+        success: true,
+        data: result.data
+      };
+    } catch (error) {
+      console.error('Error creating order:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create order'
+      };
+    }
+  },
+
+  // Backup method: Create order directly via Supabase (for fallback)
+  async createOrderDirect(order: Omit<Order, 'id' | 'created_at' | 'updated_at'>): Promise<ApiResponse<Order>> {
+    try {
+      // Generate sequential bill number for the vendor
+      let billNumber = 1;
+      if (order.vendor_id) {
+        const { data: lastOrder } = await supabase
+          .from('orders')
+          .select('bill_number')
+          .eq('vendor_id', order.vendor_id)
+          .order('bill_number', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (lastOrder && lastOrder.bill_number) {
+          billNumber = lastOrder.bill_number + 1;
+        }
+      }
+
+      // Map to correct schema columns (database uses total_price, not total)
+      const payload: any = {
+        user_id: order.user_id,
+        vendor_id: order.vendor_id, // CRITICAL: Include vendor_id for real-time sync
+        items: order.items,
+        total_price: order.total_price, // Correct column name
+        status: order.status ?? 'pending',
+        payment_status: order.payment_status ?? 'pending',
+        payment_method: order.payment_method ?? 'cod',
+        payment_id: order.payment_id,
+        delivery_address: order.delivery_address,
+        scheduled_for: order.scheduled_for,
+        special_instructions: order.special_instructions,
+        group_order_id: order.group_order_id,
+        queue_position: order.queue_position,
+        bill_number: billNumber,
+        bill_date: new Date().toISOString(),
+        order_type: order.order_type ?? 'delivery'
+      };
+
       const { data, error } = await supabase
         .from('orders')
-        .insert(order)
+        .insert(payload)
         .select()
         .single();
 
@@ -324,9 +428,9 @@ export const orderService = {
     try {
       const { data, error } = await retryRequest<Order[]>(() =>
         supabase
-          .from('orders')
-          .select('*')
-          .eq('user_id', userId)
+        .from('orders')
+        .select('*')
+        .eq('user_id', userId)
           .order('created_at', { ascending: false })
       );
 
@@ -341,6 +445,31 @@ export const orderService = {
       return {
         success: false,
         error: 'Failed to fetch orders'
+      };
+    }
+  },
+
+  // Get a specific order
+  async getOrder(orderId: string): Promise<ApiResponse<Order>> {
+    try {
+      const { data, error } = await retryRequest<Order>(() =>
+        supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single()
+      );
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data || undefined
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
       };
     }
   },
@@ -367,7 +496,7 @@ export const orderService = {
       };
     }
   },
-  
+
   // Get all orders for the shop (for shopkeeper dashboard)
   async getShopOrders(): Promise<ApiResponse<Order[]>> {
     try {
@@ -378,17 +507,11 @@ export const orderService = {
 
       if (error) throw error;
 
-      // Transform the raw data to match our Order type
-      const orders = await Promise.all(data.map(async (order: any) => {
-        // Get menu items for each order
-        const { data: orderItems } = await supabase
-          .from('order_items')
-          .select('*, menu_item:menu_items(*)')
-          .eq('order_id', order.id);
-
-        // Format the order items to match our CartItem type
-        const items = orderItems.map((item: any) => ({
-          id: item.id,
+      // Transform the raw data to match our Order type  
+      const orders = data.map((order: any) => {
+        // Items are already stored in the order.items JSONB column
+        const items = (order.items || []).map((item: any) => ({
+          id: item.menu_item_id,
           menuItem: item.menu_item,
           quantity: item.quantity,
           specialInstructions: item.special_instructions
@@ -398,7 +521,7 @@ export const orderService = {
           ...order,
           items
         } as Order;
-      }));
+      });
 
       return {
         success: true,
@@ -435,21 +558,80 @@ export const orderService = {
     }
   },
 
-  // Update order status
+  // Update order status - USE BACKEND VENDOR API
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<ApiResponse<Order>> {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/vendor/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        data: data.order as Order
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
+
+  // Cancel an order - USE BACKEND VENDOR API
+  async cancelOrder(orderId: string, reason?: string): Promise<ApiResponse<Order>> {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/vendor/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({ status: 'cancelled', reason }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        data: data.order as Order
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
+
+  // Get vendor orders
+  async getVendorOrders(vendorId: string): Promise<ApiResponse<Order[]>> {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq('id', orderId)
-        .select()
-        .single();
+        .select('*')
+        .eq('vendor_id', vendorId)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       return {
         success: true,
-        data: data as Order
+        data: data as Order[] || []
       };
     } catch (error: any) {
       return {
@@ -580,356 +762,14 @@ export const orderService = {
         error: error.message
       };
     }
-  },
-  
-  // Cancel an order
-  async cancelOrder(id: string): Promise<ApiResponse<null>> {
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ status: 'cancelled' })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      return {
-        success: true
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
   }
 };
 
-// Group Order Services
-export const groupOrderService = {
-  // Create a new group order
-  async createGroupOrder(
-    creatorId: string, 
-    name: string, 
-    expiryTime: string
-  ): Promise<ApiResponse<GroupOrder>> {
-    try {
-      const invitationLink = `${window.location.origin}/group-order/join/${Math.random().toString(36).substring(2, 10)}`;
-      
-      const { data, error } = await supabase
-        .from('group_orders')
-        .insert({
-          creator_id: creatorId,
-          name,
-          status: 'open',
-          expiry_time: expiryTime,
-          invitation_link: invitationLink,
-          participants: [{
-            user_id: creatorId,
-            name: 'You (Creator)',
-            items: [],
-            has_confirmed: false
-          }]
-        })
-        .select()
-        .single();
 
-      if (error) throw error;
 
-      return {
-        success: true,
-        data: data as GroupOrder
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
 
-  // Get a group order by ID
-  async getGroupOrderById(groupOrderId: string): Promise<ApiResponse<GroupOrder>> {
-    try {
-      const { data, error } = await supabase
-        .from('group_orders')
-        .select('*')
-        .eq('id', groupOrderId)
-        .single();
 
-      if (error) throw error;
 
-      return {
-        success: true,
-        data: data as GroupOrder
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  // Get group orders created by a user
-  async getUserGroupOrders(userId: string): Promise<ApiResponse<GroupOrder[]>> {
-    try {
-      const { data, error } = await supabase
-        .from('group_orders')
-        .select('*')
-        .eq('creator_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: data as GroupOrder[]
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  // Join a group order
-  async joinGroupOrder(
-    groupOrderId: string, 
-    userId: string, 
-    userName: string
-  ): Promise<ApiResponse<GroupOrder>> {
-    try {
-      // Get the current group order
-      const { data: groupOrder, error: fetchError } = await supabase
-        .from('group_orders')
-        .select('*')
-        .eq('id', groupOrderId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Check if the user is already a participant
-      const existingParticipantIndex = groupOrder.participants.findIndex(
-        (p: any) => p.user_id === userId
-      );
-
-      if (existingParticipantIndex === -1) {
-        // Add the new participant
-        groupOrder.participants.push({
-          user_id: userId,
-          name: userName,
-          items: [],
-          has_confirmed: false
-        });
-      }
-
-      // Update the group order
-      const { data, error } = await supabase
-        .from('group_orders')
-        .update({
-          participants: groupOrder.participants,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', groupOrderId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: data as GroupOrder
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  // Update a participant's items in a group order
-  async updateGroupOrderItems(
-    groupOrderId: string, 
-    userId: string, 
-    items: CartItem[]
-  ): Promise<ApiResponse<GroupOrder>> {
-    try {
-      // Get the current group order
-      const { data: groupOrder, error: fetchError } = await supabase
-        .from('group_orders')
-        .select('*')
-        .eq('id', groupOrderId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Find the participant and update their items
-      const participantIndex = groupOrder.participants.findIndex(
-        (p: any) => p.user_id === userId
-      );
-
-      if (participantIndex === -1) {
-        throw new Error('User is not a participant in this group order');
-      }
-
-      groupOrder.participants[participantIndex].items = items;
-
-      // Update the group order
-      const { data, error } = await supabase
-        .from('group_orders')
-        .update({
-          participants: groupOrder.participants,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', groupOrderId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: data as GroupOrder
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  // Confirm participation in a group order
-  async confirmGroupOrderParticipation(
-    groupOrderId: string, 
-    userId: string
-  ): Promise<ApiResponse<GroupOrder>> {
-    try {
-      // Get the current group order
-      const { data: groupOrder, error: fetchError } = await supabase
-        .from('group_orders')
-        .select('*')
-        .eq('id', groupOrderId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Find the participant and update their confirmation status
-      const participantIndex = groupOrder.participants.findIndex(
-        (p: any) => p.user_id === userId
-      );
-
-      if (participantIndex === -1) {
-        throw new Error('User is not a participant in this group order');
-      }
-
-      groupOrder.participants[participantIndex].has_confirmed = true;
-
-      // Update the group order
-      const { data, error } = await supabase
-        .from('group_orders')
-        .update({
-          participants: groupOrder.participants,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', groupOrderId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: data as GroupOrder
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  },
-
-  // Close a group order and place the order
-  async closeAndPlaceGroupOrder(
-    groupOrderId: string, 
-    creatorId: string
-  ): Promise<ApiResponse<{ groupOrder: GroupOrder; order: Order }>> {
-    try {
-      // Get the current group order
-      const { data: groupOrder, error: fetchError } = await supabase
-        .from('group_orders')
-        .select('*')
-        .eq('id', groupOrderId)
-        .eq('creator_id', creatorId) // Only the creator can close the order
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Combine all items into a single order
-      const allItems: CartItem[] = [];
-      groupOrder.participants.forEach((participant: any) => {
-        if (participant.items && Array.isArray(participant.items)) {
-          allItems.push(...participant.items);
-        }
-      });
-
-      // Calculate total price
-      const totalPrice = allItems.reduce((sum, item) => {
-        // Make sure we have access to the price through menuItem
-        return sum + ((item.menuItem?.price || 0) * item.quantity);
-      }, 0);
-
-      // Create a new order
-      const newOrder = {
-        user_id: creatorId,
-        items: allItems,
-        total_price: totalPrice,
-        status: 'pending' as OrderStatus,
-        payment_status: 'pending' as const,
-        group_order_id: groupOrderId,
-        special_instructions: `Group order: ${groupOrder.name}`
-      };
-
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert(newOrder)
-        .select()
-        .single();
-
-      if (orderError) throw orderError;
-
-      // Update the group order status and link to the order
-      const { data, error } = await supabase
-        .from('group_orders')
-        .update({
-          status: 'ordered',
-          order_id: orderData.id,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', groupOrderId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: {
-          groupOrder: data as GroupOrder,
-          order: orderData as Order
-        }
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-};
 
 // Notification Services
 export const notificationService = {
@@ -955,7 +795,7 @@ export const notificationService = {
       };
     }
   },
-
+  
   // Get notifications for current user
   async getUserNotifications(): Promise<ApiResponse<Notification[]>> {
     try {
@@ -982,7 +822,7 @@ export const notificationService = {
       };
     }
   },
-  
+
   // Get unread notifications count
   async getUnreadCount(): Promise<ApiResponse<{ count: number }>> {
     try {
@@ -1091,24 +931,16 @@ export const paymentService = {
   // Create a new Razorpay order
   async createRazorpayOrder(amount: number, orderId: string): Promise<ApiResponse<PaymentResponse>> {
     try {
-      const { data, error } = await supabase
-        .rpc('create_razorpay_order', {
-          amount_in_paise: Math.round(amount * 100),
-          order_reference: orderId,
-          currency: 'INR'
-        });
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: data as PaymentResponse
-      };
+      const resp = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000'}/api/payments/order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, orderReference: orderId, currency: 'INR' })
+      });
+      if (!resp.ok) throw new Error(`Create order failed: ${resp.status}`);
+      const data = await resp.json();
+      return { success: true, data };
     } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      return { success: false, error: error.message };
     }
   },
 
@@ -1119,39 +951,34 @@ export const paymentService = {
     signature: string
   ): Promise<ApiResponse<{ verified: boolean }>> {
     try {
-      const { data, error } = await supabase
-        .rpc('verify_razorpay_payment', {
-          payment_id: paymentId,
-          order_id: orderId,
-          signature: signature
-        });
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: { verified: data }
-      };
+      const resp = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000'}/api/payments/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentId, orderId, signature })
+      });
+      if (!resp.ok) throw new Error(`Verify failed: ${resp.status}`);
+      const data = await resp.json();
+      return { success: true, data };
     } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      return { success: false, error: error.message };
     }
   },
 
   // Update order payment status
   async updatePaymentStatus(
-    orderId: string, 
-    paymentId: string, 
+    orderId: string,
+    paymentId: string,
     status: PaymentStatus
   ): Promise<ApiResponse<null>> {
     try {
+      // Update both payment status and order status
+      const orderStatus = status === 'paid' ? 'completed' : 'pending';
       const { error } = await supabase
         .from('orders')
         .update({
           payment_status: status,
           payment_id: paymentId,
+          status: orderStatus,
           updated_at: new Date().toISOString()
         })
         .eq('id', orderId);
@@ -1173,7 +1000,7 @@ export const paymentService = {
 // Queue Management Services
 export const queueService = {
   // Get current queue status
-  async getQueueStatus(): Promise<ApiResponse<QueueStatus>> {
+  async getQueueStatus(vendorId?: string): Promise<ApiResponse<QueueStatus>> {
     try {
       const { data: settings, error: settingsError } = await retryRequest<QueueSettings>(() =>
         supabase
@@ -1185,16 +1012,10 @@ export const queueService = {
       if (settingsError) {
         console.log('Queue settings not available, using defaults:', settingsError);
         
+        // Return a normalized default QueueStatus
         return {
           success: true,
-          data: {
-            currentPosition: 0,
-            maxActiveOrders: 10,
-            isAcceptingOrders: true,
-            estimatedWaitTime: 0,
-            nextIntervalTime: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-            cooldownRemaining: 0
-          }
+          data: normalizeQueueStatus({})
         };
       }
       
@@ -1202,22 +1023,24 @@ export const queueService = {
         supabase
           .from('orders')
           .select('*')
-          .eq('status', 'pending')
+          .in('status', ['pending', 'accepted'])
           .order('created_at', { ascending: true })
       );
 
       if (ordersError) {
         console.error('Error fetching active orders:', ordersError);
+        
+        // Return a normalized QueueStatus with settings data
         return {
           success: true,
-          data: {
-            currentPosition: 0,
-            maxActiveOrders: settings?.max_active_orders || 10,
-            isAcceptingOrders: settings?.is_accepting_orders || true,
-            estimatedWaitTime: 0,
-            nextIntervalTime: new Date(settings?.last_interval_time ? new Date(settings.last_interval_time).getTime() + (settings.interval_minutes * 60 * 1000) : Date.now() + 10 * 60 * 1000).toISOString(),
-            cooldownRemaining: 0
-          }
+          data: normalizeQueueStatus({
+            max_active_orders: settings?.max_active_orders || 10,
+            is_accepting_orders: settings?.is_accepting_orders || true,
+            next_interval_time: new Date(settings?.last_interval_time ? 
+              new Date(settings.last_interval_time).getTime() + (settings.interval_minutes * 60 * 1000) : 
+              Date.now() + 10 * 60 * 1000).toISOString(),
+            interval_minutes: settings?.interval_minutes || 10
+          })
         };
       }
 
@@ -1225,32 +1048,64 @@ export const queueService = {
       const isAcceptingOrders = Boolean(settings?.is_accepting_orders) && currentPosition < (settings?.max_active_orders || 10);
       
       const estimatedWaitTime = currentPosition * 10; // 10 minutes per order
-      const nextIntervalTime = new Date(settings?.last_interval_time ? new Date(settings.last_interval_time).getTime() + (settings.interval_minutes * 60 * 1000) : Date.now() + 10 * 60 * 1000).toISOString();
+      const nextIntervalTime = new Date(settings?.last_interval_time ? 
+        new Date(settings.last_interval_time).getTime() + (settings.interval_minutes * 60 * 1000) : 
+        Date.now() + 10 * 60 * 1000).toISOString();
       const cooldownRemaining = Math.max(0, (new Date(nextIntervalTime).getTime() - Date.now()) / 1000 / 60);
 
+      // Return a normalized QueueStatus with all data
       return {
         success: true,
-        data: {
-          currentPosition,
-          maxActiveOrders: settings?.max_active_orders || 10,
-          isAcceptingOrders,
-          estimatedWaitTime,
-          nextIntervalTime,
-          cooldownRemaining
-        }
+        data: normalizeQueueStatus({
+          current_position: currentPosition,
+          max_active_orders: settings?.max_active_orders || 10,
+          is_accepting_orders: isAcceptingOrders,
+          estimated_wait_time: estimatedWaitTime,
+          next_interval_time: nextIntervalTime,
+          cooldown_remaining: cooldownRemaining,
+          interval_minutes: settings?.interval_minutes || 10,
+          active_orders_count: currentPosition
+        })
       };
     } catch (error) {
       console.error('Error in getQueueStatus:', error);
+      
+      // Return a normalized default QueueStatus in case of error
       return {
         success: true,
-        data: {
-          currentPosition: 0,
-          maxActiveOrders: 10,
-          isAcceptingOrders: true,
-          estimatedWaitTime: 0,
-          nextIntervalTime: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-          cooldownRemaining: 0
-        }
+        data: normalizeQueueStatus({})
+      };
+    }
+  },
+
+  // Update queue settings
+  async updateQueueSettings(settings: {
+    maxActiveOrders: number;
+    intervalMinutes: number;
+    isAcceptingOrders: boolean;
+  }): Promise<ApiResponse<any>> {
+    try {
+      const { data, error } = await supabase
+        .from('queue_settings')
+        .upsert({
+          max_active_orders: settings.maxActiveOrders,
+          interval_minutes: settings.intervalMinutes,
+          is_accepting_orders: settings.isAcceptingOrders,
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
       };
     }
   }
@@ -1286,38 +1141,196 @@ export const analyticsService = {
       const startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
       const startDateStr = startDate.toISOString();
       
-      // Get popular items
-      const { data: popularItems, error: itemsError } = await supabase
-        // Replace RPC with a query since the RPC function might not exist yet
-        .from('order_items')
-        .select('menu_item_id, menu_item:menu_items(name), quantity, price')
+      // Get popular items from orders.items JSONB column
+      const { data: orders, error: itemsError } = await supabase
+        .from('orders')
+        .select('items')
         .gte('created_at', startDateStr)
-        .order('quantity', { ascending: false })
-        .limit(10);
-        
+        .not('items', 'is', null);
+
       if (itemsError) throw itemsError;
       
-      // Process the popular items
-      const processedItems = popularItems ? 
-        popularItems.reduce((acc: any[], item: any) => {
-          const existingItem = acc.find(i => i.id === item.menu_item_id);
-          if (existingItem) {
-            existingItem.quantity += item.quantity;
-            existingItem.revenue += item.price * item.quantity;
-          } else {
-            acc.push({
-              id: item.menu_item_id,
-              name: item.menu_item?.name || 'Unknown Item',
-              quantity: item.quantity,
-              revenue: item.price * item.quantity
-            });
-          }
-          return acc;
-        }, []).slice(0, 5) : [];
+      // Process the popular items from orders.items JSONB
+      const itemCounts: { [key: string]: { name: string, quantity: number, revenue: number } } = {};
       
+      orders?.forEach((order: any) => {
+        order.items?.forEach((item: any) => {
+          const menuItemId = item.menu_item_id;
+          const menuItemName = item.menu_item?.name || 'Unknown Item';
+          const price = item.menu_item?.price || 0;
+          const quantity = item.quantity || 0;
+          
+          if (itemCounts[menuItemId]) {
+            itemCounts[menuItemId].quantity += quantity;
+            itemCounts[menuItemId].revenue += price * quantity;
+          } else {
+            itemCounts[menuItemId] = {
+              name: menuItemName,
+              quantity: quantity,
+              revenue: price * quantity
+            };
+          }
+        });
+      });
+      
+      const processedItems = Object.entries(itemCounts)
+        .map(([id, data]) => ({ id, ...data }))
+        .sort((a, b) => b.quantity - a.quantity)
+        .slice(0, limit);
+
       return {
         success: true,
         data: processedItems
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+};
+
+// Vendor Payment Distribution Service
+export const vendorPaymentService = {
+  // Create payment distribution for vendor
+  async createPaymentDistribution(
+    orderId: string,
+    vendorId: string,
+    razorpayPaymentId: string,
+    amount: number,
+    platformFeePercentage: number = 5
+  ): Promise<ApiResponse<any>> {
+    try {
+      const platformFee = (amount * platformFeePercentage) / 100;
+      const vendorAmount = amount - platformFee;
+
+      // Get vendor UPI ID
+      const { data: vendor, error: vendorError } = await supabase
+        .from('vendors')
+        .select('upi_id, business_name')
+        .eq('id', vendorId)
+        .single();
+
+      if (vendorError || !vendor?.upi_id) {
+        return {
+          success: false,
+          error: 'Vendor UPI ID not found'
+        };
+      }
+
+      // Create payment distribution record
+      const { data, error } = await supabase
+        .from('vendor_payment_distributions')
+        .insert({
+          order_id: orderId,
+          vendor_id: vendorId,
+          razorpay_payment_id: razorpayPaymentId,
+          vendor_upi_id: vendor.upi_id,
+          amount: amount,
+          platform_fee: platformFee,
+          vendor_amount: vendorAmount,
+          transfer_status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Initiate transfer to vendor UPI (this would be done via Razorpay API)
+      // For now, we'll mark it as processing
+      await supabase
+        .from('vendor_payment_distributions')
+        .update({
+          transfer_status: 'processing',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', data.id);
+
+      return {
+        success: true,
+        data: {
+          ...data,
+          vendor_name: vendor.business_name,
+          transfer_status: 'processing'
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
+
+  // Get vendor payment distributions
+  async getVendorPaymentDistributions(vendorId: string): Promise<ApiResponse<any[]>> {
+    try {
+      const { data, error } = await supabase
+        .from('vendor_payment_distributions')
+        .select(`
+          *,
+          orders!inner(
+            id,
+            total_price,
+            created_at,
+            delivery_address
+          )
+        `)
+        .eq('vendor_id', vendorId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: data || []
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
+
+  // Update transfer status (webhook handler)
+  async updateTransferStatus(
+    distributionId: string,
+    status: string,
+    transferId?: string,
+    transferResponse?: any
+  ): Promise<ApiResponse<any>> {
+    try {
+      const updateData: any = {
+        transfer_status: status,
+        updated_at: new Date().toISOString()
+      };
+
+      if (transferId) {
+        updateData.transfer_id = transferId;
+      }
+
+      if (transferResponse) {
+        updateData.transfer_response = transferResponse;
+      }
+
+      if (status === 'completed') {
+        updateData.transferred_at = new Date().toISOString();
+      }
+
+      const { data, error } = await supabase
+        .from('vendor_payment_distributions')
+        .update(updateData)
+        .eq('id', distributionId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data
       };
     } catch (error: any) {
       return {

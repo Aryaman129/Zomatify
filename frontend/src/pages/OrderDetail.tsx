@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FaMapMarkerAlt, FaPhone, FaReceipt, FaUtensils, FaMotorcycle, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
+import { FaMapMarkerAlt, FaPhone, FaReceipt, FaUtensils, FaMotorcycle, FaCheckCircle, FaTimesCircle, FaClock, FaCreditCard, FaInfoCircle } from 'react-icons/fa';
 import { format } from 'date-fns';
 import AppHeader from '../components/common/AppHeader';
 import { orderService } from '../services/api';
-import { Order, OrderStatus } from '../types';
+import { Order, OrderStatus } from '../types/index';
 import { toast } from 'react-toastify';
 import { subscribeToRealtimeUpdates } from '../services/supabaseClient';
+import { normalizeOrderItem, normalizeOrder, formatId } from '../utils/formatters';
 
 const PageContainer = styled.div`
   padding-bottom: 80px;
@@ -18,17 +19,7 @@ const ContentSection = styled.div`
 `;
 
 const OrderStatusCard = styled.div<{ $status: OrderStatus }>`
-  background-color: ${({ $status }: { $status: OrderStatus }) => {
-    switch ($status) {
-      case 'completed': return '#E8F5E9';
-      case 'cancelled': return '#FFEBEE';
-      case 'pending': return '#FFF8E1';
-      case 'accepted': return '#E3F2FD';
-      case 'preparing': return '#FFF3E0';
-      case 'ready': return '#E0F2F1';
-      default: return '#EEEEEE';
-    }
-  }};
+  background-color: ${({ $status }: { $status: OrderStatus }) => getStatusBgColor(statusToString($status))};
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 16px;
@@ -45,17 +36,7 @@ const StatusIcon = styled.div<{ $status: OrderStatus }>`
   display: flex;
   align-items: center;
   justify-content: center;
-  color: ${({ $status }: { $status: OrderStatus }) => {
-    switch ($status) {
-      case 'completed': return '#4CAF50';
-      case 'cancelled': return '#F44336';
-      case 'pending': return '#FFC107';
-      case 'accepted': return '#2196F3';
-      case 'preparing': return '#FF9800';
-      case 'ready': return '#009688';
-      default: return '#9E9E9E';
-    }
-  }};
+  color: ${({ $status }: { $status: OrderStatus }) => getStatusTextColor(statusToString($status))};
   font-size: 1.5rem;
 `;
 
@@ -245,12 +226,45 @@ const LoadingContainer = styled.div`
   color: #666;
 `;
 
+const getStatusBgColor = (status: string) => {
+  switch (status) {
+    case 'pending': return '#FFC107';
+    case 'accepted': return '#2196F3';
+    case 'preparing': return '#4CAF50';
+    case 'ready': return '#009688';
+    case 'completed': return '#8BC34A';
+    case 'cancelled': return '#F44336';
+    default: return '#9E9E9E';
+  }
+};
+
+const getStatusTextColor = (status: string) => {
+  switch (status) {
+    case 'pending': return '#FFC107';
+    case 'accepted': return '#2196F3';
+    case 'preparing': return '#4CAF50';
+    case 'ready': return '#009688';
+    case 'completed': return '#8BC34A';
+    case 'cancelled': return '#F44336';
+    default: return '#9E9E9E';
+  }
+};
+
+const statusToString = (status: OrderStatus): string => {
+  return status.toString();
+};
+
+const formatCurrency = (amount: number) => {
+  return `₹${amount.toFixed(2)}`;
+};
+
 const OrderDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   useEffect(() => {
     const fetchOrder = async () => {
@@ -261,15 +275,18 @@ const OrderDetail: React.FC = () => {
         const { success, data, error } = await orderService.getOrderById(id);
         
         if (success && data) {
-          setOrder(data);
+          const normalizedOrder = normalizeOrder(data);
+          setOrder(normalizedOrder as Order);
         } else {
           console.error('Failed to fetch order:', error);
           toast.error('Failed to load order details');
+          setError('Failed to load order details');
           navigate('/orders');
         }
       } catch (error) {
         console.error('Error fetching order:', error);
-        toast.error('Something went wrong');
+        toast.error('An unexpected error occurred');
+        setError('An unexpected error occurred');
         navigate('/orders');
       } finally {
         setLoading(false);
@@ -307,12 +324,8 @@ const OrderDetail: React.FC = () => {
     };
   }, [id]);
   
-  const getStatusIcon = (status: OrderStatus) => {
+  const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'completed':
-        return <FaCheckCircle />;
-      case 'cancelled':
-        return <FaTimesCircle />;
       case 'pending':
         return <FaReceipt />;
       case 'accepted':
@@ -320,18 +333,18 @@ const OrderDetail: React.FC = () => {
       case 'preparing':
         return <FaUtensils />;
       case 'ready':
-        return <FaMotorcycle />;
+        return <FaCheckCircle />;
+      case 'completed':
+        return <FaCheckCircle />;
+      case 'cancelled':
+        return <FaTimesCircle />;
       default:
         return <FaReceipt />;
     }
   };
   
-  const getStatusDescription = (status: OrderStatus) => {
+  const getStatusText = (status: string) => {
     switch (status) {
-      case 'completed':
-        return 'Your order has been delivered successfully.';
-      case 'cancelled':
-        return 'This order has been cancelled.';
       case 'pending':
         return 'Your order is waiting for restaurant confirmation.';
       case 'accepted':
@@ -340,8 +353,12 @@ const OrderDetail: React.FC = () => {
         return 'The restaurant is preparing your order.';
       case 'ready':
         return 'Your order is ready for pickup/delivery.';
+      case 'completed':
+        return 'Your order has been delivered.';
+      case 'cancelled':
+        return 'Your order has been cancelled.';
       default:
-        return 'Order status unknown.';
+        return 'Order status not available.';
     }
   };
   
@@ -402,7 +419,7 @@ const OrderDetail: React.FC = () => {
   
   return (
     <PageContainer>
-      <AppHeader title={`Order #${order.id.slice(-6)}`} />
+      <AppHeader title={`Order #${formatId(order.id)}`} />
       
       <ContentSection>
         <OrderStatusCard $status={order.status}>
@@ -411,7 +428,7 @@ const OrderDetail: React.FC = () => {
           </StatusIcon>
           <StatusInfo>
             <StatusTitle>{order.status.charAt(0).toUpperCase() + order.status.slice(1)}</StatusTitle>
-            <StatusDescription>{getStatusDescription(order.status)}</StatusDescription>
+            <StatusDescription>{getStatusText(order.status)}</StatusDescription>
           </StatusInfo>
         </OrderStatusCard>
         
@@ -421,15 +438,20 @@ const OrderDetail: React.FC = () => {
           </CardHeader>
           <CardContent>
             <OrderItems>
-              {order.items.map((item, index) => (
-                <OrderItem key={index}>
-                  <ItemDetails>
-                    <ItemQuantity>{item.quantity}x</ItemQuantity>
-                    <ItemName>{item.menuItem?.name || 'Unknown item'}</ItemName>
-                  </ItemDetails>
-                  <ItemPrice>₹{((item.menuItem?.price || 0) * item.quantity).toFixed(2)}</ItemPrice>
-                </OrderItem>
-              ))}
+              {order.items.map((item, index) => {
+                const menuItem = item.menu_item;
+                return (
+                  <OrderItem key={index}>
+                    <ItemDetails>
+                      <ItemQuantity>{item.quantity}x</ItemQuantity>
+                      <ItemName>{menuItem?.name || 'Unknown item'}</ItemName>
+                    </ItemDetails>
+                    <ItemPrice>
+                      {formatCurrency((menuItem?.price || 0) * item.quantity)}
+                    </ItemPrice>
+                  </OrderItem>
+                );
+              })}
             </OrderItems>
             
             <Divider />
@@ -457,15 +479,21 @@ const OrderDetail: React.FC = () => {
           </CardHeader>
           <CardContent>
             <DeliveryInfo>
-              <InfoItem>
-                <InfoIcon>
-                  <FaMapMarkerAlt />
-                </InfoIcon>
-                <InfoContent>
-                  <InfoLabel>Delivery Address</InfoLabel>
-                  <InfoValue>{order.delivery_address || 'Pickup at restaurant'}</InfoValue>
-                </InfoContent>
-              </InfoItem>
+              {order.delivery_address && (
+                <InfoItem>
+                  <InfoIcon>
+                    <FaMapMarkerAlt />
+                  </InfoIcon>
+                  <InfoContent>
+                    <InfoLabel>Delivery Address</InfoLabel>
+                    <InfoValue>
+                      {order.delivery_address.addressLine1}
+                      {order.delivery_address.addressLine2 && `, ${order.delivery_address.addressLine2}`}
+                      {order.delivery_address.landmark && ` (${order.delivery_address.landmark})`}
+                    </InfoValue>
+                  </InfoContent>
+                </InfoItem>
+              )}
               
               <InfoItem>
                 <InfoIcon>
@@ -509,7 +537,7 @@ const OrderDetail: React.FC = () => {
               {order.special_instructions && (
                 <InfoItem>
                   <InfoIcon>
-                    <FaReceipt />
+                    <FaInfoCircle />
                   </InfoIcon>
                   <InfoContent>
                     <InfoLabel>Special Instructions</InfoLabel>

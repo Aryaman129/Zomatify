@@ -1,11 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize the Supabase client
-const supabaseUrl = 'https://hggechldftdpgxaicyqu.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhnZ2VjaGxkZnRkcGd4YWljeXF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDg5NjQ0NzAsImV4cCI6MjAyNDU0MDQ3MH0.0Rq4zX7kQZRZQZQZQZQZQZQZQZQZQZQZQZQZQZQZQ';
+// Initialize the Supabase client using environment variables
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Supabase credentials are missing. Make sure to set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY in your .env file');
+  throw new Error('Supabase credentials are missing. Make sure to set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY in your .env file');
 }
 
 // Create client with explicit storage configuration

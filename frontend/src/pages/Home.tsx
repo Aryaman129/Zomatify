@@ -112,16 +112,16 @@ const Home: React.FC = () => {
       <AppHeader title="Zomatify" showBackButton={false} />
       
       <HeroSection>
-        <HeroTitle>Welcome{user ? `, ${user.first_name || 'back'}` : ''}!</HeroTitle>
+        <HeroTitle>Welcome{user ? `, ${user.user_metadata?.first_name || 'back'}` : ''}!</HeroTitle>
         <HeroSubtitle>Order delicious food from your favorite restaurants</HeroSubtitle>
       </HeroSection>
       
       <FeaturesGrid>
-        <FeatureCard to="/menu">
+        <FeatureCard to="/vendors">
           <FeatureIcon>
             <FaUtensils />
           </FeatureIcon>
-          <FeatureTitle>Order Food</FeatureTitle>
+          <FeatureTitle>Choose Restaurant</FeatureTitle>
         </FeatureCard>
         
         <FeatureCard to="/schedule-order">
@@ -150,7 +150,7 @@ const Home: React.FC = () => {
         <SectionTitle>Recent Orders</SectionTitle>
         <EmptyState>
           <p>You don't have any recent orders</p>
-          <CTAButton to="/menu">Order Now</CTAButton>
+          <CTAButton to="/vendors">Choose Restaurant</CTAButton>
         </EmptyState>
       </RecentOrdersSection>
     </HomeContainer>

@@ -1,14 +1,5 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { CartState, CartItem, MenuItem, MenuItemOption } from '../types';
-
-interface CartContextType extends CartState {
-  addItem: (item: MenuItem, quantity: number, specialInstructions?: string, selectedOptions?: MenuItemOption[]) => void;
-  removeItem: (itemId: string) => void;
-  updateItemQuantity: (itemId: string, quantity: number) => void;
-  updateItemInstructions: (itemId: string, instructions: string) => void;
-  clearCart: () => void;
-  getItemById: (itemId: string) => CartItem | undefined;
-}
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { CartState, CartItem, MenuItem, MenuItemOption, CartContextType } from '../types/index';
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
@@ -55,12 +46,45 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [cartState]);
 
   const addItem = (
-    menuItem: MenuItem, 
-    quantity: number, 
-    specialInstructions?: string, 
+    menuItem: MenuItem,
+    quantity: number,
+    specialInstructions?: string,
     selectedOptions?: MenuItemOption[]
   ) => {
+    console.log('Adding item to cart:', {
+      menuItem: menuItem.name,
+      vendor_id: menuItem.vendor_id,
+      quantity
+    });
+
     setCartState((prevState) => {
+      // Check if cart has items from a different vendor
+      if (prevState.items.length > 0 && prevState.items[0].menuItem.vendor_id !== menuItem.vendor_id) {
+        console.log('Different vendor detected:', {
+          currentVendor: prevState.items[0].menuItem.vendor_id,
+          newVendor: menuItem.vendor_id
+        });
+        // Show warning and clear cart to add from new vendor
+        if (window.confirm('Your cart contains items from a different restaurant. Adding this item will clear your current cart. Continue?')) {
+          // Clear cart and add new item
+          const newItem: CartItem = {
+            id: `${menuItem.id}-${Date.now()}`,
+            menuItem,
+            quantity,
+            specialInstructions,
+            selected_options: selectedOptions
+          };
+          const newItems = [newItem];
+          return {
+            items: newItems,
+            ...calculateCartTotals(newItems)
+          };
+        } else {
+          // Don't add item if user cancels
+          return prevState;
+        }
+      }
+
       // Check if item already exists in cart
       const existingItemIndex = prevState.items.findIndex(
         (item) => item.menuItem.id === menuItem.id

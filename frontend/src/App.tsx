@@ -13,18 +13,27 @@ import Checkout from './pages/Checkout';
 import OrderSuccess from './pages/OrderSuccess';
 import OrderHistory from './pages/OrderHistory';
 import OrderDetail from './pages/OrderDetail';
+import CustomerOrderDetails from './pages/CustomerOrderDetails';
 import Profile from './pages/Profile';
-import ShopkeeperDashboard from './pages/ShopkeeperDashboard';
 import AnalyticsDashboard from './pages/AnalyticsDashboard';
-import GroupOrder from './pages/GroupOrder';
-import ScheduleOrder from './pages/ScheduleOrder';
+import SelfPickupPage from './pages/ScheduleOrder';
 import ScheduledOrders from './pages/ScheduledOrders';
 import Notifications from './pages/Notifications';
 import NotFound from './pages/NotFound';
 
+// Vendor Pages
+import VendorLogin from './pages/VendorLogin';
+import VendorDashboard from './pages/VendorDashboard';
+import DeliveryVendorDashboard from './pages/DeliveryVendorDashboard';
+import PickupVendorDashboard from './pages/PickupVendorDashboard';
+
+// New Pages
+import VendorSelection from './pages/VendorSelection';
+import VendorMenuDisplay from './components/VendorMenuDisplay';
+import OrderTracking from './pages/OrderTracking';
+
 // Layouts
 import MainLayout from './components/layouts/MainLayout';
-import ShopkeeperLayout from './components/layouts/ShopkeeperLayout';
 
 const App: React.FC = () => {
   const { user, loading } = useAuth();
@@ -73,13 +82,13 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="orders/:orderId" 
+        <Route
+          path="orders/:orderId"
           element={
             <ProtectedRoute>
-              <OrderDetail />
+              <CustomerOrderDetails />
             </ProtectedRoute>
-          } 
+          }
         />
         <Route 
           path="profile" 
@@ -89,14 +98,7 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="group-order" 
-          element={
-            <ProtectedRoute>
-              <GroupOrder />
-            </ProtectedRoute>
-          } 
-        />
+
         <Route 
           path="scheduled-orders" 
           element={
@@ -105,13 +107,13 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="schedule-order" 
+        <Route
+          path="schedule-order"
           element={
             <ProtectedRoute>
-              <ScheduleOrder />
+              <SelfPickupPage />
             </ProtectedRoute>
-          } 
+          }
         />
         <Route 
           path="notifications" 
@@ -123,27 +125,18 @@ const App: React.FC = () => {
         />
       </Route>
 
-      {/* Shopkeeper routes with ShopkeeperLayout */}
-      <Route 
-        path="/shopkeeper" 
-        element={
-          <ProtectedRoute requiredRole="shopkeeper">
-            <ShopkeeperLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<ShopkeeperDashboard />} />
-        <Route path="analytics" element={<AnalyticsDashboard />} />
-      </Route>
+      {/* Vendor Routes */}
+      <Route path="/vendor/login" element={<VendorLogin />} />
+      <Route path="/vendor/dashboard" element={<VendorDashboard />} />
+      <Route path="/vendor/delivery" element={<DeliveryVendorDashboard />} />
+      <Route path="/vendor/pickup" element={<PickupVendorDashboard />} />
 
-      {/* Direct development access route - REMOVE IN PRODUCTION */}
-      <Route 
-        path="/dev-shopkeeper" 
-        element={<ShopkeeperLayout />}
-      >
-        <Route index element={<ShopkeeperDashboard />} />
-        <Route path="analytics" element={<AnalyticsDashboard />} />
-      </Route>
+      {/* Customer Vendor Selection Routes */}
+      <Route path="/vendors" element={<VendorSelection />} />
+      <Route path="/vendor/:vendorId/menu" element={<VendorMenuDisplay />} />
+
+      {/* Order Tracking */}
+      <Route path="/order/:orderId" element={<OrderTracking />} />
 
       {/* Catch all route */}
       <Route path="*" element={<NotFound />} />

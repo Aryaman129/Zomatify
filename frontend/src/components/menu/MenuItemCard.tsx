@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { FaPlus, FaMinus, FaHeart } from 'react-icons/fa';
 import { motion } from 'framer-motion';
-import { MenuItem } from '../../types';
+import { MenuItem } from '../../types/index';
 import { useCart } from '../../contexts/CartContext';
 
 interface MenuItemCardProps {
@@ -249,16 +249,16 @@ const MenuItemCard: React.FC<MenuItemCardProps> = ({
       <ContentContainer>
         <ItemHeader>
           <ItemName>{item.name}</ItemName>
-          <ItemPrice>₹{item.price.toFixed(2)}</ItemPrice>
+          <ItemPrice>₹{Number(item.price ?? 0).toFixed(2)}</ItemPrice>
         </ItemHeader>
         
         <ItemDescription>{item.description}</ItemDescription>
         
         <ItemMeta>
           <PrepTime>Prep time: {item.preparation_time} mins</PrepTime>
-          {item.rating && (
+          {item.rating != null && !Number.isNaN(Number(item.rating)) && (
             <Rating>
-              ★ {item.rating.toFixed(1)} ({item.review_count})
+              ★ {Number(item.rating).toFixed(1)} ({item.review_count ?? 0})
             </Rating>
           )}
         </ItemMeta>
