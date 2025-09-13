@@ -57,6 +57,13 @@ const allowedOrigins = [
   'http://172.16.0.100:3000', // Docker/container network IP
 ];
 
+// Add production origins from environment variable
+if (process.env.ALLOWED_ORIGINS) {
+  const productionOrigins = process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim());
+  allowedOrigins.push(...productionOrigins);
+  console.log('✅ Added production origins:', productionOrigins);
+}
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
@@ -76,11 +83,18 @@ app.use(cors({
       return callback(null, true);
     }
 
+    // Allow Vercel domains
+    if (origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
+
     // In development, allow all origins
     if (process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
 
+    console.log('❌ Origin not allowed:', origin);
+    console.log('   Allowed origins:', allowedOrigins);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,

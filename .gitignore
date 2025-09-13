@@ -135,3 +135,4 @@ e2e-tests/
 
 # VSCode AI rules
 .github/instructions/codacy.instructions.md
+.vercel
