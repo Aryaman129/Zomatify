@@ -43,7 +43,7 @@ vercel --prod
    ```env
    REACT_APP_SUPABASE_URL=https://your-project.supabase.co
    REACT_APP_SUPABASE_ANON_KEY=your-anon-key
-   REACT_APP_API_BASE_URL=https://your-backend.onrender.com/api
+   REACT_APP_API_BASE_URL=https://your-backend.vercel.app/api
    REACT_APP_RAZORPAY_KEY_ID=rzp_live_xxxxxxxx
    ```
 
@@ -54,22 +54,21 @@ vercel --prod
 2. Add your custom domain
 3. Configure DNS records as instructed
 
-## 🖥️ Backend Deployment (Render)
+## 🖥️ Backend Deployment (Vercel)
 
-### Method 1: Render Dashboard
-1. **Create Account**: Go to [Render](https://render.com)
-2. **New Web Service**: Connect your GitHub repository
-3. **Configure Service**:
+### Method 1: Vercel Dashboard
+1. **Create Account**: Go to [Vercel Dashboard](https://vercel.com/dashboard)
+2. **Import Backend**: Click "New Project" → Import from Git
+3. **Configure Settings**:
    - Name: `zomatify-backend`
-   - Environment: `Node`
-   - Build Command: `cd backend && npm install`
-   - Start Command: `cd backend && npm start`
-   - Auto-Deploy: `Yes`
+   - Framework Preset: `Other`
+   - Root Directory: `backend`
+   - Build Command: `npm install`
+   - Output Directory: `` (leave empty for serverless functions)
 
 4. **Environment Variables**:
    ```env
    NODE_ENV=production
-   PORT=5001
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
    RAZORPAY_KEY_ID=rzp_live_xxxxxxxx
@@ -77,37 +76,31 @@ vercel --prod
    ALLOWED_ORIGINS=https://your-frontend.vercel.app
    ```
 
-5. **Deploy**: Service will automatically deploy
+5. **Deploy**: Click "Deploy"
 
-### Method 2: Railway
+### Method 2: Vercel CLI
 ```bash
-# Install Railway CLI
-npm i -g @railway/cli
-
-# Login
-railway login
-
-# Initialize project
-railway init
-
-# Deploy
-railway up
+# From project root
+cd backend
+vercel --prod
 ```
 
-### Method 3: Heroku
-```bash
-# Install Heroku CLI
-# Create Heroku app
-heroku create zomatify-backend
+### Serverless Function Structure
+Your backend will be converted to Vercel serverless functions automatically. The `vercel.json` file in the backend directory configures this:
 
-# Set environment variables
-heroku config:set NODE_ENV=production
-heroku config:set SUPABASE_URL=your-url
-# ... other variables
-
-# Deploy
-git push heroku main
+```json
+{
+  "version": 2,
+  "builds": [{ "src": "src/index.js", "use": "@vercel/node" }],
+  "routes": [{ "src": "/(.*)", "dest": "src/index.js" }]
+}
 ```
+
+### Important Notes for Vercel Backend:
+- All routes will be available at `/api/*` on your Vercel domain
+- Serverless functions have a 30-second timeout limit
+- Environment variables must be set in Vercel dashboard
+- Database connections should use connection pooling
 
 ## 🗄️ Database Setup (Supabase)
 
@@ -163,10 +156,10 @@ FOR ALL USING (vendor_id IN (
    }
    ```
 
-### Render Monitoring
-- Built-in logs and metrics
-- Set up alerts for downtime
-- Monitor memory and CPU usage
+### Vercel Backend Monitoring
+- Built-in serverless function logs
+- Real-time deployment monitoring
+- Performance insights and analytics
 
 ### Supabase Monitoring
 - Database insights and query performance
@@ -211,10 +204,6 @@ const allowedOrigins = [
 vercel logs your-deployment-url
 ```
 
-#### Render Logs
-- View in Render dashboard
-- Filter by timestamp and severity
-
 #### Supabase Logs
 - SQL Editor for query logs
 - Auth logs for user issues
@@ -229,10 +218,10 @@ vercel logs your-deployment-url
 - Implement code splitting
 
 ### Backend
-- Enable Render auto-scaling
-- Use database indexes
-- Implement API caching
+- Enable Vercel Edge caching
+- Use efficient serverless functions
 - Optimize database queries
+- Implement connection pooling
 
 ### Database
 - Use Supabase connection pooling
@@ -272,7 +261,6 @@ If you encounter issues during deployment:
 1. Check the [troubleshooting section](#-troubleshooting)
 2. Review service status pages:
    - [Vercel Status](https://vercel-status.com)
-   - [Render Status](https://status.render.com)
    - [Supabase Status](https://status.supabase.com)
 3. Create an issue in the [GitHub repository](https://github.com/Aryaman129/Zomatify/issues)
 
