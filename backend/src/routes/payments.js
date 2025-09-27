@@ -5,16 +5,156 @@ const router = express.Router();
 
 const razorpay = require('../utils/razorpay');
 
+// Debug: Log environment variables
+console.log('🔍 Payments route - Environment variables:');
+console.log('   SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ Set' : '❌ Missing');
+console.log('   SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅ Set' : '❌ Missing');
+console.log('   RAZORPAY_KEY_ID:', process.env.RAZORPAY_KEY_ID ? '✅ Set' : '❌ Missing');
+console.log('   RAZORPAY_KEY_SECRET:', process.env.RAZORPAY_KEY_SECRET ? '✅ Set' : '❌ Missing');
+
+// Validate required environment variables
+if (!process.env.SUPABASE_URL) {
+  throw new Error('SUPABASE_URL environment variable is required');
+}
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required');
+}
+
 // Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+console.log('✅ Payments route - Supabase client initialized successfully');
+
+// Debug endpoint to check actual credential values (masked)
+router.get('/debug-credentials', (req, res) => {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  
+  return res.json({
+    key_id_present: !!keyId,
+    key_secret_present: !!keySecret,
+    key_id_length: keyId ? keyId.length : 0,
+    key_secret_length: keySecret ? keySecret.length : 0,
+    key_id_preview: keyId ? `${keyId.substring(0, 4)}***${keyId.substring(keyId.length - 4)}` : 'MISSING',
+    key_secret_preview: keySecret ? `${keySecret.substring(0, 4)}***${keySecret.substring(keySecret.length - 4)}` : 'MISSING',
+    key_id_starts_with_test: keyId ? keyId.startsWith('rzp_test_') : false
+  });
+});
+
+// Test Razorpay credentials directly
+router.get('/test-credentials', async (req, res) => {
+  try {
+    const credentials = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64');
+    
+    const response = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        amount: 100,
+        currency: 'INR',
+        receipt: `test_${Date.now()}`
+      })
+    });
+    
+    const data = await response.json();
+    
+    return res.json({
+      status: response.status,
+      success: response.ok,
+      data: data,
+      credentials_test: 'Direct API call'
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Test Razorpay API connectivity
+router.get('/test-api', async (req, res) => {
+  try {
+    const testRazorpay = require('../utils/razorpay');
+    
+    // Try to create a test order with minimum amount
+    const options = {
+      amount: 100, // ₹1.00
+      currency: 'INR',
+      receipt: `test_${Date.now()}`,
+    };
+    
+    console.log('Testing Razorpay order creation with options:', options);
+    const order = await testRazorpay.orders.create(options);
+    
+    return res.json({
+      status: 'success',
+      message: 'Razorpay API test successful',
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency
+    });
+  } catch (error) {
+    console.error('Razorpay API test failed:', error);
+    console.error('Error type:', typeof error);
+    console.error('Error stringified:', JSON.stringify(error, null, 2));
+    
+    return res.status(500).json({
+      status: 'error',
+      message: error.message || 'Unknown error',
+      description: error.description || 'No description',
+      field: error.field || 'No field',
+      source: error.source || 'No source',
+      step: error.step || 'No step',
+      reason: error.reason || 'No reason',
+      code: error.code || 'No code',
+      statusCode: error.statusCode || 'No status code',
+      errorString: String(error)
+    });
+  }
+});
+
+// Test Razorpay initialization
+router.get('/test-init', async (req, res) => {
+  try {
+    const testRazorpay = require('../utils/razorpay');
+    const instance = testRazorpay.instance;
+    return res.json({
+      status: 'success',
+      message: 'Razorpay initialized successfully',
+      keyId: process.env.RAZORPAY_KEY_ID ? 'Present' : 'Missing'
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: 'error',
+      message: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+// Debug endpoint to check environment variables
+router.get('/debug', (req, res) => {
+  return res.json({
+    razorpay_key_id: process.env.RAZORPAY_KEY_ID ? 'Present' : 'Missing',
+    razorpay_key_secret: process.env.RAZORPAY_KEY_SECRET ? 'Present' : 'Missing',
+    node_env: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Create a new Razorpay order
 router.post('/order', async (req, res) => {
   try {
     const { amount, orderReference, currency = 'INR' } = req.body || {};
+    
+    console.log('Payment order request:', { amount, orderReference, currency });
 
     if (!amount || Number.isNaN(Number(amount)) || Number(amount) <= 0) {
       return res.status(400).json({ error: 'Invalid amount' });
@@ -26,8 +166,12 @@ router.post('/order', async (req, res) => {
       receipt: orderReference || `order_${Date.now()}`,
       notes: req.body?.notes || {}
     };
+    
+    console.log('Razorpay order options:', options);
 
     const order = await razorpay.orders.create(options);
+    
+    console.log('Razorpay order created:', order);
 
     return res.status(200).json({
       id: order.id,
@@ -37,7 +181,15 @@ router.post('/order', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating Razorpay order:', error);
-    return res.status(500).json({ error: error.message || 'Failed to create Razorpay order' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      type: error.constructor.name
+    });
+    return res.status(500).json({ 
+      error: error.message || 'Failed to create Razorpay order',
+      details: error.type || 'Unknown error'
+    });
   }
 });
 
