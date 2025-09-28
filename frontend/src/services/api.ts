@@ -964,26 +964,29 @@ export const paymentService = {
     }
   },
 
-  // Update order payment status
+  // Update order payment status - USE BACKEND API
   async updatePaymentStatus(
     orderId: string,
     paymentId: string,
     status: PaymentStatus
   ): Promise<ApiResponse<null>> {
     try {
-      // Update both payment status and order status
-      const orderStatus = status === 'paid' ? 'completed' : 'pending';
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          payment_status: status,
+      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000'}/api/orders/${orderId}/payment`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
           payment_id: paymentId,
-          status: orderStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
+          payment_status: status,
+          status: status === 'paid' ? 'completed' : 'pending'
+        }),
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
 
       return {
         success: true

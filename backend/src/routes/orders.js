@@ -101,6 +101,53 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Get all orders (with optional filters)
+router.get('/', async (req, res) => {
+  try {
+    const { user_id, vendor_id, status, limit = 50, offset = 0 } = req.query;
+
+    let query = supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    // Apply filters if provided
+    if (user_id) {
+      query = query.eq('user_id', user_id);
+    }
+    if (vendor_id) {
+      query = query.eq('vendor_id', vendor_id);
+    }
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching orders:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to fetch orders'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: data || [],
+      count: data?.length || 0
+    });
+
+  } catch (error) {
+    console.error('Error in order fetching:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch orders'
+    });
+  }
+});
+
 // Get order by ID
 router.get('/:orderId', async (req, res) => {
   try {
@@ -129,6 +176,61 @@ router.get('/:orderId', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch order'
+    });
+  }
+});
+
+// Update order payment status
+router.patch('/:orderId/payment', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { payment_id, payment_status, status } = req.body;
+
+    // Validate required fields
+    if (!payment_id || !payment_status) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: payment_id or payment_status'
+      });
+    }
+
+    // Update order with payment information
+    const { data, error } = await supabase
+      .from('orders')
+      .update({
+        payment_id,
+        payment_status,
+        status: status || (payment_status === 'paid' ? 'completed' : 'pending'),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', orderId)
+      .select();
+
+    if (error) {
+      console.error('Error updating order payment status:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to update order payment status'
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: data[0]
+    });
+
+  } catch (error) {
+    console.error('Error in order payment status update:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update order payment status'
     });
   }
 });
