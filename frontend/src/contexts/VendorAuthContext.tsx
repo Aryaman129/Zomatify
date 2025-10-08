@@ -47,17 +47,36 @@ export const VendorAuthProvider: React.FC<VendorAuthProviderProps> = ({ children
     isAuthenticated: false
   });
 
-  // Check for existing vendor session on mount
+  // Check for existing vendor session on mount - only if on vendor routes
   useEffect(() => {
-    checkVendorSession();
+    // Only check vendor session if we're on a vendor route
+    const currentPath = window.location.pathname;
+    const isVendorRoute = currentPath.includes('/vendor') || 
+                         currentPath.includes('/dashboard') ||
+                         currentPath.includes('/pickup') ||
+                         currentPath.includes('/delivery');
+    
+    if (isVendorRoute) {
+      checkVendorSession();
+    } else {
+      // Set initial state for non-vendor routes without making API calls
+      setVendorState({
+        vendor: null,
+        loading: false,
+        error: null,
+        isAuthenticated: false
+      });
+    }
   }, []);
 
   const checkVendorSession = async () => {
     try {
+      console.log('🏪 VendorAuth: Checking vendor session...');
       const vendorData = localStorage.getItem('vendor_session');
       if (vendorData) {
         const vendor = JSON.parse(vendorData);
         
+        console.log('🏪 VendorAuth: Found stored vendor session, verifying...');
         // Verify vendor is still active
         const { data, error } = await supabase
           .from('vendors')
@@ -67,6 +86,7 @@ export const VendorAuthProvider: React.FC<VendorAuthProviderProps> = ({ children
           .single();
 
         if (error || !data) {
+          console.log('🏪 VendorAuth: Vendor verification failed, clearing session');
           localStorage.removeItem('vendor_session');
           setVendorState({
             vendor: null,
@@ -77,6 +97,7 @@ export const VendorAuthProvider: React.FC<VendorAuthProviderProps> = ({ children
           return;
         }
 
+        console.log('🏪 VendorAuth: Vendor session verified');
         setVendorState({
           vendor: data,
           loading: false,
@@ -84,6 +105,7 @@ export const VendorAuthProvider: React.FC<VendorAuthProviderProps> = ({ children
           isAuthenticated: true
         });
       } else {
+        console.log('🏪 VendorAuth: No stored vendor session found');
         setVendorState({
           vendor: null,
           loading: false,
@@ -92,7 +114,7 @@ export const VendorAuthProvider: React.FC<VendorAuthProviderProps> = ({ children
         });
       }
     } catch (error) {
-      console.error('Error checking vendor session:', error);
+      console.error('🏪 VendorAuth: Error checking vendor session:', error);
       setVendorState({
         vendor: null,
         loading: false,
