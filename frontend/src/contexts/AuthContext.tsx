@@ -241,11 +241,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .single();
 
       // Create a timeout promise that resolves to null instead of rejecting
-      const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+      const timeoutPromise = new Promise<{ data: null; error: { message: string; code?: string } }>((resolve) =>
         setTimeout(() => {
-          console.log('⏰ Profile fetch timed out after 3 seconds');
-          resolve({ data: null, error: { message: 'Profile fetch timed out' } });
-        }, 3000) // Reduced timeout to 3 seconds
+          console.log('⏰ Profile fetch timed out after 10 seconds');
+          resolve({ data: null, error: { message: 'Profile fetch timed out', code: 'TIMEOUT' } });
+        }, 10000) // Increased timeout to 10 seconds to handle slow connections
       );
 
       console.log('🚀 Racing profile query with timeout...');
@@ -255,9 +255,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.log('❌ Profile fetch error:', error);
         
-        if (error.code === 'PGRST116' || error.message === 'Profile fetch timed out') {
-          // No profile found or timeout, create one
-          console.log('📝 No profile found or timeout, creating new profile...');
+        if (error.code === 'PGRST116') {
+          // No profile found, create one
+          console.log('📝 No profile found, creating new profile...');
           
           const { data: userData, error: userError } = await supabase.auth.getUser();
 
@@ -285,12 +285,43 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             .single();
 
           if (createError) {
+            // If profile already exists (duplicate key error), try fetching again
+            if (createError.code === '23505') {
+              console.log('⚠️ Profile already exists, fetching it again...');
+              const { data: existingProfile, error: fetchError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', userId)
+                .single();
+              
+              if (!fetchError && existingProfile) {
+                console.log('✅ Successfully fetched existing profile:', existingProfile);
+                return existingProfile;
+              }
+            }
+            
             console.error('❌ Error creating user profile:', createError);
             return null;
           }
 
           console.log('✅ Profile created successfully:', newProfile);
           return newProfile;
+        } else if (error.code === 'TIMEOUT' || error.message === 'Profile fetch timed out') {
+          // Timeout occurred, retry once more with longer timeout
+          console.log('🔄 Retrying profile fetch after timeout...');
+          const { data: retryData, error: retryError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+          
+          if (!retryError && retryData) {
+            console.log('✅ Profile fetched successfully on retry:', retryData);
+            return retryData;
+          }
+          
+          console.error('❌ Profile fetch failed even after retry:', retryError);
+          return null;
         }
         
         console.error('❌ Error fetching user profile:', error);
