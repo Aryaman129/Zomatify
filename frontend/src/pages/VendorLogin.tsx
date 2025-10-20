@@ -4,7 +4,7 @@ import styled from 'styled-components';
 import { motion } from 'framer-motion';
 import { FaStore, FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft } from 'react-icons/fa';
 import { toast } from 'react-toastify';
-import supabase from '../services/supabaseClient';
+import { useVendorAuth } from '../contexts/VendorAuthContext';
 
 const Container = styled.div`
   min-height: 100vh;
@@ -194,6 +194,7 @@ const VendorLogin: React.FC = () => {
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
+  const { loginVendor } = useVendorAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,28 +207,11 @@ const VendorLogin: React.FC = () => {
     setLoading(true);
     
     try {
-      // Use regular Supabase auth for vendors
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password
-      });
+      // Use custom vendor authentication via authenticate_vendor RPC
+      const result = await loginVendor(formData.email, formData.password);
 
-      if (error) {
-        toast.error('Invalid email or password');
-        setLoading(false);
-        return;
-      }
-
-      // Check if user is a vendor (shopkeeper)
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', data.user.id)
-        .single();
-
-      if (!profile || profile.role !== 'shopkeeper') {
-        toast.error('Access denied. This account is not authorized as a vendor.');
-        await supabase.auth.signOut();
+      if (!result.success) {
+        toast.error(result.error || 'Invalid email or password');
         setLoading(false);
         return;
       }

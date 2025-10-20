@@ -8,6 +8,7 @@ import { orderService } from '../services/api';
 import { Order } from '../types/index';
 import { format } from 'date-fns';
 import supabase from '../services/supabaseClient';
+import { useVendorAuth } from '../contexts/VendorAuthContext';
 
 const Container = styled.div`
   min-height: 100vh;
@@ -256,58 +257,23 @@ const ItemRow = styled.div`
 
 const PickupVendorDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { vendor: vendorFromContext, logoutVendor, loading: authLoading } = useVendorAuth();
+  
   const [vendor, setVendor] = useState<any>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkVendorAuth();
-  }, []);
-
-  const checkVendorAuth = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
+    if (!authLoading) {
+      if (!vendorFromContext) {
         toast.error('Please log in to access the vendor dashboard');
         navigate('/vendor/login');
-        return;
+      } else {
+        setVendor(vendorFromContext);
+        loadPickupOrders(vendorFromContext.id);
       }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .single();
-
-      if (!profile || profile.role !== 'shopkeeper') {
-        toast.error('Access denied. You are not authorized as a vendor.');
-        await supabase.auth.signOut();
-        navigate('/vendor/login');
-        return;
-      }
-
-      const { data: vendorData } = await supabase
-        .from('vendors')
-        .select('*')
-        .eq('owner_id', session.user.id)
-        .single();
-
-      const vendorInfo = {
-        id: vendorData?.id,
-        business_name: vendorData?.business_name || 'Restaurant',
-        vendor_email: session.user.email
-      };
-
-      setVendor(vendorInfo);
-      loadPickupOrders(vendorInfo.id);
-
-    } catch (error) {
-      console.error('Auth check error:', error);
-      toast.error('Authentication error');
-      navigate('/vendor/login');
     }
-  };
+  }, [authLoading, vendorFromContext, navigate]);
 
   const loadPickupOrders = async (vendorId: string) => {
     try {
@@ -383,7 +349,7 @@ const PickupVendorDashboard: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      await logoutVendor();
       toast.success('Logged out successfully');
       navigate('/vendor/login');
     } catch (error) {
