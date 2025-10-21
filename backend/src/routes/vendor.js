@@ -125,25 +125,29 @@ router.get('/orders', async (req, res) => {
   }
 });
 
-// Update order status
-router.patch('/orders/:orderId/status', verifyVendorAuth, async (req, res) => {
+// Update order status (vendor-specific, no Supabase auth required)
+router.patch('/orders/:orderId/status', async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { status, reason } = req.body;
+    const { status, reason, vendor_id } = req.body;
 
     if (!status) {
       return res.status(400).json({ success: false, error: 'Status is required' });
     }
 
-    // Get the vendor ID for the authenticated user
+    if (!vendor_id) {
+      return res.status(400).json({ success: false, error: 'vendor_id is required' });
+    }
+
+    // Get vendor data
     const { data: vendorData, error: vendorError } = await supabase
       .from('vendors')
       .select('id, business_name, upi_id')
-      .eq('owner_id', req.user.id)
+      .eq('id', vendor_id)
       .single();
 
     if (vendorError || !vendorData) {
-      return res.status(404).json({ success: false, error: 'Vendor not found for authenticated user' });
+      return res.status(404).json({ success: false, error: 'Vendor not found' });
     }
 
     const vendorId = vendorData.id;

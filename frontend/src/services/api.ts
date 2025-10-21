@@ -559,15 +559,22 @@ export const orderService = {
   },
 
   // Update order status - USE BACKEND VENDOR API
-  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<ApiResponse<Order>> {
+  async updateOrderStatus(orderId: string, status: OrderStatus, vendorId?: string): Promise<ApiResponse<Order>> {
     try {
+      // Get vendor_id from localStorage if not provided
+      const vendorSession = localStorage.getItem('vendor_session');
+      const vendor_id = vendorId || (vendorSession ? JSON.parse(vendorSession).id : null);
+      
+      if (!vendor_id) {
+        throw new Error('Vendor ID not found');
+      }
+
       const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/vendor/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, vendor_id }),
       });
 
       if (!response.ok) {
@@ -589,15 +596,22 @@ export const orderService = {
   },
 
   // Cancel an order - USE BACKEND VENDOR API
-  async cancelOrder(orderId: string, reason?: string): Promise<ApiResponse<Order>> {
+  async cancelOrder(orderId: string, reason?: string, vendorId?: string): Promise<ApiResponse<Order>> {
     try {
+      // Get vendor_id from localStorage if not provided
+      const vendorSession = localStorage.getItem('vendor_session');
+      const vendor_id = vendorId || (vendorSession ? JSON.parse(vendorSession).id : null);
+      
+      if (!vendor_id) {
+        throw new Error('Vendor ID not found');
+      }
+
       const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/vendor/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
-        body: JSON.stringify({ status: 'cancelled', reason }),
+        body: JSON.stringify({ status: 'cancelled', reason, vendor_id }),
       });
 
       if (!response.ok) {
