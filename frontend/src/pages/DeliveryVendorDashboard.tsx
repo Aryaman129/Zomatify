@@ -244,18 +244,38 @@ const DeliveryVendorDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('🏪 DeliveryVendorDashboard useEffect:', {
+      authLoading,
+      vendorFromContext,
+      vendorId: vendorFromContext?.id
+    });
+
     if (!authLoading) {
       if (!vendorFromContext) {
         toast.error('Please log in to access the vendor dashboard');
         navigate('/vendor/login');
+      } else if (!vendorFromContext.id) {
+        console.error('❌ Vendor context exists but has no ID:', vendorFromContext);
+        toast.error('Invalid vendor session. Please log in again.');
+        navigate('/vendor/login');
       } else {
         setVendor(vendorFromContext);
+        console.log('✅ Loading delivery orders for vendor:', vendorFromContext.id);
         loadDeliveryOrders(vendorFromContext.id);
       }
     }
   }, [authLoading, vendorFromContext, navigate]);
 
   const loadDeliveryOrders = async (vendorId: string) => {
+    // Strict validation
+    if (!vendorId || typeof vendorId !== 'string' || vendorId === 'undefined' || vendorId === '[object Object]') {
+      console.error('❌ Invalid vendor ID received in DeliveryVendorDashboard:', vendorId, 'Type:', typeof vendorId);
+      toast.error('Invalid vendor session. Please log in again.');
+      return;
+    }
+
+    console.log('🔍 Loading delivery orders for vendor ID:', vendorId);
+
     try {
       setLoading(true);
       // Load orders without relations first
@@ -269,6 +289,8 @@ const DeliveryVendorDashboard: React.FC = () => {
         .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
+
+      console.log('✅ Loaded delivery orders:', ordersData?.length || 0);
 
       // Load order items for each order - items are stored in the orders.items JSONB column
       const ordersWithItems = (ordersData || []).map((order: any) => {
