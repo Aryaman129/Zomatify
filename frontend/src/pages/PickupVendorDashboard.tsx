@@ -434,12 +434,17 @@ const PickupVendorDashboard: React.FC = () => {
             {order.items && order.items.length > 0 && (
               <ItemsList>
                 <ItemsTitle>Order Items:</ItemsTitle>
-                {order.items.map((item: any, index: number) => (
-                  <ItemRow key={index}>
-                    <span>{item.quantity}x {item.name || 'Unknown Item'}</span>
-                    <span>₹{(item.price * item.quantity).toFixed(2)}</span>
-                  </ItemRow>
-                ))}
+                {order.items.map((item: any, index: number) => {
+                  // Handle both flat and nested item structures
+                  const itemName = item.menu_item?.name || item.name || 'Unknown Item';
+                  const itemPrice = item.menu_item?.price || item.price || 0;
+                  return (
+                    <ItemRow key={index}>
+                      <span>{item.quantity}x {itemName}</span>
+                      <span>₹{(itemPrice * item.quantity).toFixed(2)}</span>
+                    </ItemRow>
+                  );
+                })}
               </ItemsList>
             )}
 
