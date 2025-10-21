@@ -258,9 +258,9 @@ const VendorOperationalControls: React.FC = () => {
         .from('vendor_settings')
         .select('*')
         .eq('vendor_id', vendor.id)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
       
       if (data) {
         setSettings({
