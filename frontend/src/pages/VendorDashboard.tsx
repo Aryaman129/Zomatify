@@ -557,20 +557,31 @@ const VendorDashboard: React.FC = () => {
 
   const loadDashboardData = async (vendorId?: string) => {
     const currentVendorId = vendorId || vendor?.id;
-    if (!currentVendorId) return;
+    if (!currentVendorId) {
+      console.error('❌ No vendor ID available');
+      return;
+    }
+    
+    // Ensure vendorId is a string, not an object
+    const vendorIdString = typeof currentVendorId === 'object' ? (currentVendorId as any).id : String(currentVendorId);
+    console.log('🔍 Loading dashboard data for vendor:', vendorIdString);
     
     setLoading(true);
     try {
       // Load vendor-specific orders
-      const ordersResult = await orderService.getVendorOrders(currentVendorId);
+      const ordersResult = await orderService.getVendorOrders(vendorIdString);
       if (ordersResult.success) {
         setOrders(ordersResult.data || []);
+      } else {
+        console.error('❌ Failed to load orders:', ordersResult.error);
       }
 
       // Load vendor menu items
-      const menuResult = await menuService.getMenuItems(currentVendorId);
+      const menuResult = await menuService.getMenuItems(vendorIdString);
       if (menuResult.success) {
         setMenuItems(menuResult.data || []);
+      } else {
+        console.error('❌ Failed to load menu items:', menuResult.error);
       }
 
       // Load queue status
@@ -640,7 +651,9 @@ const VendorDashboard: React.FC = () => {
         console.log('Payment update received:', payload);
         // Refresh dashboard data when payments are updated
         if (payload.eventType === 'UPDATE' && payload.new.transfer_status === 'completed') {
-          loadDashboardData();
+          if (vendor?.id) {
+            loadDashboardData(vendor.id);
+          }
         }
       }
     );
@@ -1090,7 +1103,9 @@ const VendorDashboard: React.FC = () => {
                 toast.success('Order rejected');
               }
               // Refresh orders
-              loadDashboardData();
+              if (vendor?.id) {
+                loadDashboardData(vendor.id);
+              }
             } catch (error) {
               toast.error(`Failed to ${action} order`);
             }
