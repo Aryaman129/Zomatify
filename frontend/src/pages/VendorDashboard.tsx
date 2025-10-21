@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { motion } from 'framer-motion';
@@ -489,19 +489,79 @@ const VendorDashboard: React.FC = () => {
     activeMenuItems: 0
   });
 
-  // Check vendor authentication from context
+  // Define loadDashboardData BEFORE any useEffect that uses it
+  const loadDashboardData = useCallback(async (vendorId: string) => {
+    if (!vendorId || vendorId === 'undefined') {
+      console.error('❌ Invalid vendor ID:', vendorId);
+      return;
+    }
+    
+    console.log('🔍 Loading dashboard data for vendor:', vendorId);
+    
+    setLoading(true);
+    try {
+      // Load vendor-specific orders
+      const ordersResult = await orderService.getVendorOrders(vendorId);
+      if (ordersResult.success) {
+        setOrders(ordersResult.data || []);
+      } else {
+        console.error('❌ Failed to load orders:', ordersResult.error);
+      }
+
+      // Load vendor menu items
+      const menuResult = await menuService.getMenuItems(vendorId);
+      if (menuResult.success) {
+        setMenuItems(menuResult.data || []);
+      } else {
+        console.error('❌ Failed to load menu items:', menuResult.error);
+      }
+
+      // Load queue status
+      const queueResult = await queueService.getQueueStatus(vendorId);
+      if (queueResult.success) {
+        setQueueStatus(queueResult.data || null);
+      }
+
+      // Calculate stats
+      const todayOrders = (ordersResult.data || []).filter((order: Order) =>
+        new Date(order.created_at).toDateString() === new Date().toDateString()
+      );
+
+      const pendingOrders = (ordersResult.data || []).filter((order: Order) =>
+        ['pending', 'accepted'].includes(order.status)
+      );
+
+      const todayRevenue = todayOrders.reduce((sum: number, order: Order) => sum + order.total_price, 0);
+
+      setStats({
+        totalOrders: ordersResult.data?.length || 0,
+        pendingOrders: pendingOrders.length,
+        todayRevenue,
+        activeMenuItems: (menuResult.data || []).filter(item => item.is_available).length
+      });
+
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  }, []); // No dependencies - function is stable
+
+  // Check vendor authentication and load data
   useEffect(() => {
     if (!authLoading) {
       if (!vendorFromContext) {
         toast.error('Please log in to access the vendor dashboard');
         navigate('/vendor/login');
       } else {
+        // Set vendor state
         setVendor(vendorFromContext);
-        // Load dashboard data with vendor ID
+        // Load dashboard data immediately
         loadDashboardData(vendorFromContext.id);
       }
     }
-  }, [authLoading, vendorFromContext, navigate]);
+  }, [authLoading, vendorFromContext, navigate, loadDashboardData]);
 
   const handleLogout = async () => {
     try {
@@ -554,67 +614,6 @@ const VendorDashboard: React.FC = () => {
       unsubscribePayments();
     };
   }, [vendor, navigate]);
-
-  const loadDashboardData = async (vendorId?: string) => {
-    const currentVendorId = vendorId || vendor?.id;
-    if (!currentVendorId) {
-      console.error('❌ No vendor ID available');
-      return;
-    }
-    
-    // Ensure vendorId is a string, not an object
-    const vendorIdString = typeof currentVendorId === 'object' ? (currentVendorId as any).id : String(currentVendorId);
-    console.log('🔍 Loading dashboard data for vendor:', vendorIdString);
-    
-    setLoading(true);
-    try {
-      // Load vendor-specific orders
-      const ordersResult = await orderService.getVendorOrders(vendorIdString);
-      if (ordersResult.success) {
-        setOrders(ordersResult.data || []);
-      } else {
-        console.error('❌ Failed to load orders:', ordersResult.error);
-      }
-
-      // Load vendor menu items
-      const menuResult = await menuService.getMenuItems(vendorIdString);
-      if (menuResult.success) {
-        setMenuItems(menuResult.data || []);
-      } else {
-        console.error('❌ Failed to load menu items:', menuResult.error);
-      }
-
-      // Load queue status
-      const queueResult = await queueService.getQueueStatus(currentVendorId);
-      if (queueResult.success) {
-        setQueueStatus(queueResult.data || null);
-      }
-
-      // Calculate stats
-      const todayOrders = (ordersResult.data || []).filter((order: Order) =>
-        new Date(order.created_at).toDateString() === new Date().toDateString()
-      );
-
-      const pendingOrders = (ordersResult.data || []).filter((order: Order) =>
-        ['pending', 'accepted'].includes(order.status)
-      );
-
-      const todayRevenue = todayOrders.reduce((sum: number, order: Order) => sum + order.total_price, 0);
-
-      setStats({
-        totalOrders: ordersResult.data?.length || 0,
-        pendingOrders: pendingOrders.length,
-        todayRevenue,
-        activeMenuItems: (menuResult.data || []).filter(item => item.is_available).length
-      });
-
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const setupRealtimeSubscriptions = () => {
     if (!vendor) return;
