@@ -491,29 +491,35 @@ const VendorDashboard: React.FC = () => {
 
   // Define loadDashboardData BEFORE any useEffect that uses it
   const loadDashboardData = useCallback(async (vendorId: string) => {
-    if (!vendorId || vendorId === 'undefined') {
-      console.error('❌ Invalid vendor ID:', vendorId);
+    // Strict validation
+    if (!vendorId || typeof vendorId !== 'string' || vendorId === 'undefined' || vendorId === '[object Object]') {
+      console.error('❌ Invalid vendor ID received:', vendorId, 'Type:', typeof vendorId);
+      toast.error('Invalid vendor session. Please log in again.');
       return;
     }
     
-    console.log('🔍 Loading dashboard data for vendor:', vendorId);
+    console.log('🔍 Loading dashboard data for vendor ID:', vendorId);
     
     setLoading(true);
     try {
       // Load vendor-specific orders
       const ordersResult = await orderService.getVendorOrders(vendorId);
       if (ordersResult.success) {
+        console.log('✅ Loaded orders:', ordersResult.data?.length || 0);
         setOrders(ordersResult.data || []);
       } else {
         console.error('❌ Failed to load orders:', ordersResult.error);
+        toast.error('Failed to load orders');
       }
 
       // Load vendor menu items
       const menuResult = await menuService.getMenuItems(vendorId);
       if (menuResult.success) {
+        console.log('✅ Loaded menu items:', menuResult.data?.length || 0);
         setMenuItems(menuResult.data || []);
       } else {
         console.error('❌ Failed to load menu items:', menuResult.error);
+        toast.error('Failed to load menu items');
       }
 
       // Load queue status
@@ -748,7 +754,7 @@ const VendorDashboard: React.FC = () => {
           </VendorInfo>
           
           <HeaderActions>
-            <ActionButton onClick={loadDashboardData} title="Refresh">
+            <ActionButton onClick={() => vendor?.id && loadDashboardData(vendor.id)} title="Refresh">
               <FaRedo />
             </ActionButton>
             <ActionButton title="Notifications">

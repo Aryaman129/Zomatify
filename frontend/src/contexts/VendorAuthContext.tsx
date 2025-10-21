@@ -74,16 +74,42 @@ export const VendorAuthProvider: React.FC<VendorAuthProviderProps> = ({ children
       console.log('🏪 VendorAuth: Checking vendor session...');
       const vendorData = localStorage.getItem('vendor_session');
       if (vendorData) {
-        const vendor = JSON.parse(vendorData);
+        let vendor;
+        try {
+          vendor = JSON.parse(vendorData);
+        } catch (parseError) {
+          console.error('🏪 VendorAuth: Failed to parse vendor session, clearing corrupted data');
+          localStorage.removeItem('vendor_session');
+          setVendorState({
+            vendor: null,
+            loading: false,
+            error: 'Corrupted session data',
+            isAuthenticated: false
+          });
+          return;
+        }
         
-        console.log('🏪 VendorAuth: Found stored vendor session, verifying...');
+        // Validate vendor object has required fields
+        if (!vendor || typeof vendor !== 'object' || !vendor.id || typeof vendor.id !== 'string') {
+          console.error('🏪 VendorAuth: Invalid vendor session structure:', vendor);
+          localStorage.removeItem('vendor_session');
+          setVendorState({
+            vendor: null,
+            loading: false,
+            error: 'Invalid session structure',
+            isAuthenticated: false
+          });
+          return;
+        }
+        
+        console.log('🏪 VendorAuth: Found stored vendor session, verifying vendor ID:', vendor.id);
         // Verify vendor is still active
         const { data, error } = await supabase
           .from('vendors')
           .select('id, business_name, vendor_email, is_active, upi_id, payment_details, last_login')
           .eq('id', vendor.id)
           .eq('is_active', true)
-          .single();
+          .maybeSingle();
 
         if (error || !data) {
           console.log('🏪 VendorAuth: Vendor verification failed, clearing session');
@@ -149,6 +175,12 @@ export const VendorAuthProvider: React.FC<VendorAuthProviderProps> = ({ children
             vendor_email: vendorData.vendor_email,
             is_active: vendorData.is_active
           };
+
+          console.log('🏪 VendorAuth: Login successful, storing vendor session:', {
+            id: vendor.id,
+            business_name: vendor.business_name,
+            vendor_email: vendor.vendor_email
+          });
 
           // Store vendor session
           localStorage.setItem('vendor_session', JSON.stringify(vendor));
