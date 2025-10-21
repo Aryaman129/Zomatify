@@ -15,83 +15,64 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     error: null,
   });
 
-  // Add ref to prevent race conditions during initialization
+  // Add refs to prevent race conditions
   const initializingRef = useRef(false);
-  const fetchingProfileRef = useRef(false);
+  const fetchingProfileRef = useRef<string | null>(null); // Store userId being fetched
+  const authHandlerDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     // Get session on initial load
     const getSession = async () => {
-      if (initializingRef.current) return; // Prevent race condition
+      if (initializingRef.current) {
+        console.log('🔒 Already initializing, skipping...');
+        return;
+      }
       initializingRef.current = true;
       
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) {
-          console.error('Error getting session:', error);
-          setState(prev => ({ ...prev, loading: false }));
+          console.error('❌ Error getting session:', error);
+          if (mountedRef.current) {
+            setState(prev => ({ ...prev, loading: false }));
+          }
           initializingRef.current = false;
           return;
         }
 
-        if (session) {
-          // Get user data with timeout protection
-          const getUserPromise = supabase.auth.getUser();
-          const getUserTimeout = new Promise<{ data: { user: null }; error: any }>((resolve) =>
-            setTimeout(() => {
-              console.log('⏰ Initial getUser() timed out, using session user instead');
-              resolve({ data: { user: null }, error: new Error('getUser timeout') });
-            }, 3000)
-          );
-
-          const { data: { user }, error: userError } = await Promise.race([getUserPromise, getUserTimeout]);
+        if (session?.user) {
+          console.log('✅ Initial session found, loading user data...');
+          const profile = await fetchUserProfile(session.user.id);
           
-          let finalUser = user;
-          if (userError || !user) {
-            console.log('🔄 Using session.user as fallback in initial load');
-            finalUser = session.user;
-          }
-          
-          if (!finalUser) {
-            console.error('Error getting user data and no session fallback:', userError);
-            setState(prev => ({ ...prev, loading: false }));
-            initializingRef.current = false;
-            return;
-          }
-
-          // Fetch user profile with timeout protection
-          try {
-            const profilePromise = fetchUserProfile(finalUser.id);
-            const timeoutPromise = new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), 8000) // 8 second total timeout
-            );
-
-            const profile = await Promise.race([profilePromise, timeoutPromise]);
-            
+          if (mountedRef.current) {
             setState({
-              user: finalUser as AuthUser,
+              user: session.user as AuthUser,
               profile,
               session,
               loading: false,
               error: null,
             });
-          } catch (err) {
-            console.error('Initial profile fetch failed:', err);
-            setState({
-              user: finalUser as AuthUser,
-              profile: null,
-              session,
-              loading: false,
-              error: 'Failed to load profile',
-            });
           }
         } else {
-          setState(prev => ({ ...prev, loading: false }));
+          console.log('ℹ️ No initial session');
+          if (mountedRef.current) {
+            setState(prev => ({ ...prev, loading: false }));
+          }
         }
       } catch (err) {
-        console.error('Unexpected error getting session:', err);
-        setState(prev => ({ ...prev, loading: false }));
+        console.error('💥 Unexpected error getting session:', err);
+        if (mountedRef.current) {
+          setState(prev => ({ ...prev, loading: false }));
+        }
       } finally {
         initializingRef.current = false;
       }
@@ -99,247 +80,131 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     getSession();
 
-    // Listen for auth changes
+    // Listen for auth changes with debouncing
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: string, session: any) => {
       console.log('🔄 Auth state changed:', event);
       
-      // Skip if currently initializing to prevent race conditions
-      if (initializingRef.current && event === 'INITIAL_SESSION') {
-        console.log('⏸️ Skipping auth change during initialization');
+      // Skip INITIAL_SESSION to prevent duplicate processing
+      if (event === 'INITIAL_SESSION') {
+        console.log('⏸️ Skipping INITIAL_SESSION (handled by getSession)');
         return;
       }
       
-      if (session) {
-        console.log('👤 Session exists, getting user data...');
-        
-        // Add timeout to supabase.auth.getUser() to prevent hanging
-        const getUserPromise = supabase.auth.getUser();
-        const getUserTimeout = new Promise<{ data: { user: null }; error: any }>((resolve) =>
-          setTimeout(() => {
-            console.log('⏰ getUser() timed out, using session user instead');
-            resolve({ data: { user: null }, error: new Error('getUser timeout') });
-          }, 3000)
-        );
-
-        const { data: { user }, error: userError } = await Promise.race([getUserPromise, getUserTimeout]);
-        
-        if (userError || !user) {
-          // Fallback to session.user if getUser() fails/times out
-          const fallbackUser = session.user;
-          if (fallbackUser) {
-            console.log('🔄 Using session.user as fallback');
-            
-            console.log('🎯 User data retrieved (via fallback), fetching profile...');
-            // Fetch user profile with timeout protection
-            try {
-              const profilePromise = fetchUserProfile(fallbackUser.id);
-              const timeoutPromise = new Promise<null>((resolve) => {
-                console.log('⏰ Setting up 5-second timeout for profile fetch...');
-                setTimeout(() => {
-                  console.log('⏰ Auth handler timeout reached - resolving with null profile');
-                  resolve(null);
-                }, 5000); // 5 second total timeout
-              });
-
-              console.log('🏁 Racing profile fetch with timeout...');
-              const profile = await Promise.race([profilePromise, timeoutPromise]);
-              
-              console.log('✅ Profile fetch completed, updating state:', { profile });
-              setState({
-                user: fallbackUser as AuthUser,
-                profile,
-                session,
-                loading: false,
-                error: null,
-              });
-            } catch (err) {
-              console.error('💥 Profile fetch failed:', err);
-              setState({
-                user: fallbackUser as AuthUser,
-                profile: null,
-                session,
-                loading: false,
-                error: 'Failed to load profile',
-              });
-            }
-            return;
-          }
-          
-          console.error('❌ Error getting user data and no session fallback:', userError);
-          setState(prev => ({ ...prev, session, loading: false }));
-          return;
-        }
-
-        console.log('🎯 User data retrieved, fetching profile...');
-        // Fetch user profile with timeout protection
-        try {
-          const profilePromise = fetchUserProfile(user.id);
-          const timeoutPromise = new Promise<null>((resolve) => {
-            console.log('⏰ Setting up 5-second timeout for profile fetch...');
-            setTimeout(() => {
-              console.log('⏰ Auth handler timeout reached - resolving with null profile');
-              resolve(null);
-            }, 5000); // 5 second total timeout
-          });
-
-          console.log('🏁 Racing profile fetch with timeout...');
-          const profile = await Promise.race([profilePromise, timeoutPromise]);
-          
-          console.log('✅ Profile fetch completed, updating state:', { profile });
-          setState({
-            user: user as AuthUser,
-            profile,
-            session,
-            loading: false,
-            error: null,
-          });
-        } catch (err) {
-          console.error('💥 Profile fetch failed:', err);
-          setState({
-            user: user as AuthUser,
-            profile: null,
-            session,
-            loading: false,
-            error: 'Failed to load profile',
-          });
-        }
-      } else {
-        setState({
-          user: null,
-          profile: null,
-          session: null,
-          loading: false,
-          error: null,
-        });
+      // Debounce rapid auth state changes
+      if (authHandlerDebounceRef.current) {
+        clearTimeout(authHandlerDebounceRef.current);
       }
+      
+      authHandlerDebounceRef.current = setTimeout(async () => {
+        if (!mountedRef.current) return;
+        
+        if (session?.user) {
+          console.log('👤 Session exists, fetching profile...');
+          const profile = await fetchUserProfile(session.user.id);
+          
+          if (mountedRef.current) {
+            setState({
+              user: session.user as AuthUser,
+              profile,
+              session,
+              loading: false,
+              error: null,
+            });
+          }
+        } else {
+          console.log('👋 Session ended, clearing state');
+          if (mountedRef.current) {
+            setState({
+              user: null,
+              profile: null,
+              session: null,
+              loading: false,
+              error: null,
+            });
+          }
+        }
+      }, 300); // 300ms debounce
     });
 
     // Cleanup subscription
     return () => {
       subscription.unsubscribe();
+      if (authHandlerDebounceRef.current) {
+        clearTimeout(authHandlerDebounceRef.current);
+      }
     };
   }, []);
 
   // Helper function to fetch user profile data
   const fetchUserProfile = async (userId: string): Promise<User | null> => {
-    // Prevent concurrent profile fetches
-    if (fetchingProfileRef.current) {
-      console.log('🔒 Profile fetch already in progress, skipping...');
+    // Prevent concurrent profile fetches for the same user
+    if (fetchingProfileRef.current === userId) {
+      console.log('🔒 Profile fetch already in progress for user:', userId);
       return null;
     }
     
-    fetchingProfileRef.current = true;
+    fetchingProfileRef.current = userId;
     
     try {
-      console.log('🔍 Starting profile fetch for user:', userId);
+      console.log('🔍 Fetching profile for user:', userId);
       
-      // Add timeout to prevent hanging
+      // Single timeout for profile fetch - 5 seconds
       const profileQuery = supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
 
-      // Create a timeout promise that resolves to null instead of rejecting
       const timeoutPromise = new Promise<{ data: null; error: { message: string; code?: string } }>((resolve) =>
         setTimeout(() => {
-          console.log('⏰ Profile fetch timed out after 10 seconds');
-          resolve({ data: null, error: { message: 'Profile fetch timed out', code: 'TIMEOUT' } });
-        }, 10000) // Increased timeout to 10 seconds to handle slow connections
+          console.log('⏰ Profile query timeout (5s)');
+          resolve({ data: null, error: { message: 'Timeout', code: 'TIMEOUT' } });
+        }, 5000)
       );
 
-      console.log('🚀 Racing profile query with timeout...');
       const result = await Promise.race([profileQuery, timeoutPromise]);
       const { data, error } = result;
 
       if (error) {
-        console.log('❌ Profile fetch error:', error);
-        
         if (error.code === 'PGRST116') {
           // No profile found, create one
-          console.log('📝 No profile found, creating new profile...');
+          console.log('📝 Creating profile for new user');
           
-          const { data: userData, error: userError } = await supabase.auth.getUser();
+          const { data: userData } = await supabase.auth.getUser();
+          if (!userData?.user) return null;
 
-          if (userError || !userData.user) {
-            console.error('❌ Error getting user data:', userError);
-            return null;
-          }
-
-          // Create profile for the user
           const userMeta = userData.user.user_metadata || {};
-          const profileData = {
-            id: userId,
-            email: userData.user.email || '',
-            first_name: userMeta.first_name || userMeta.full_name?.split(' ')[0] || '',
-            last_name: userMeta.last_name || userMeta.full_name?.split(' ').slice(1).join(' ') || '',
-            phone_number: userMeta.phone_number || '',
-            role: userMeta.role || 'customer'
-          };
-
-          console.log('🚀 Creating profile with data:', profileData);
-          const { data: newProfile, error: createError } = await supabase
+          const { data: newProfile } = await supabase
             .from('profiles')
-            .insert(profileData)
+            .insert({
+              id: userId,
+              email: userData.user.email || '',
+              first_name: userMeta.first_name || userMeta.full_name?.split(' ')[0] || '',
+              last_name: userMeta.last_name || userMeta.full_name?.split(' ').slice(1).join(' ') || '',
+              phone_number: userMeta.phone_number || '',
+              role: userMeta.role || 'customer'
+            })
             .select()
             .single();
 
-          if (createError) {
-            // If profile already exists (duplicate key error), try fetching again
-            if (createError.code === '23505') {
-              console.log('⚠️ Profile already exists, fetching it again...');
-              const { data: existingProfile, error: fetchError } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', userId)
-                .single();
-              
-              if (!fetchError && existingProfile) {
-                console.log('✅ Successfully fetched existing profile:', existingProfile);
-                return existingProfile;
-              }
-            }
-            
-            console.error('❌ Error creating user profile:', createError);
-            return null;
-          }
-
-          console.log('✅ Profile created successfully:', newProfile);
+          console.log('✅ Profile created');
           return newProfile;
-        } else if (error.code === 'TIMEOUT' || error.message === 'Profile fetch timed out') {
-          // Timeout occurred, retry once more with longer timeout
-          console.log('🔄 Retrying profile fetch after timeout...');
-          const { data: retryData, error: retryError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-          
-          if (!retryError && retryData) {
-            console.log('✅ Profile fetched successfully on retry:', retryData);
-            return retryData;
-          }
-          
-          console.error('❌ Profile fetch failed even after retry:', retryError);
+        } else if (error.code === 'TIMEOUT') {
+          console.log('⏰ Profile fetch timed out, returning null');
           return null;
         }
         
-        console.error('❌ Error fetching user profile:', error);
+        console.error('❌ Profile fetch error:', error);
         return null;
       }
 
-      if (!data) {
-        console.log('⚠️ No profile data returned, but no error');
-        return null;
-      }
-
-      console.log('✅ Profile fetched successfully:', data);
+      console.log('✅ Profile loaded');
       return data;
     } catch (err) {
-      console.error('💥 Unexpected error in fetchUserProfile:', err);
+      console.error('💥 Profile fetch error:', err);
       return null;
     } finally {
-      fetchingProfileRef.current = false;
+      fetchingProfileRef.current = null;
     }
   };
 

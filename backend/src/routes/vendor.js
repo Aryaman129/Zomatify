@@ -194,11 +194,8 @@ router.patch('/orders/:orderId/status', async (req, res) => {
       try {
         console.log(`Processing refund for cancelled order ${orderId}, payment ${currentOrder.payment_id}`);
         
-        // Use same base URL as current server
-        const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
-        
         // Call payment refund API
-        const refundResponse = await fetch(`${baseUrl}/api/payments/refund`, {
+        const refundResponse = await fetch('http://localhost:5001/api/payments/refund', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
