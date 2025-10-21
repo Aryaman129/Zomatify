@@ -992,8 +992,8 @@ export const paymentService = {
         },
         body: JSON.stringify({ 
           payment_id: paymentId,
-          payment_status: status,
-          status: status === 'paid' ? 'completed' : 'pending'
+          payment_status: status
+          // Don't change order status - keep it as 'pending' for vendor to accept
         }),
       });
 

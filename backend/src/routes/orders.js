@@ -195,12 +195,12 @@ router.patch('/:orderId/payment', async (req, res) => {
     }
 
     // Update order with payment information
+    // Only update payment fields, keep status as 'pending' for vendor to accept
     const { data, error } = await supabase
       .from('orders')
       .update({
         payment_id,
         payment_status,
-        status: status || (payment_status === 'paid' ? 'completed' : 'pending'),
         updated_at: new Date().toISOString()
       })
       .eq('id', orderId)

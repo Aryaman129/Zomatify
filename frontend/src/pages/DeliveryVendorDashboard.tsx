@@ -264,6 +264,7 @@ const DeliveryVendorDashboard: React.FC = () => {
         .select('*')
         .eq('vendor_id', vendorId)
         .eq('order_type', 'delivery')
+        .eq('payment_status', 'paid')
         .in('status', ['pending', 'accepted', 'preparing', 'ready'])
         .order('created_at', { ascending: false });
 
