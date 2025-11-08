@@ -36,6 +36,84 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // ============ VENDOR SETTINGS VALIDATION ============
+    // Check vendor operational settings before accepting order
+    const { data: vendorSettings, error: settingsError } = await supabase
+      .from('vendor_settings')
+      .select('*')
+      .eq('vendor_id', orderData.vendor_id)
+      .maybeSingle();
+
+    if (settingsError) {
+      console.error('Error fetching vendor settings:', settingsError);
+      return res.status(500).json({
+        success: false,
+        error: 'Unable to verify vendor availability'
+      });
+    }
+
+    if (!vendorSettings) {
+      console.warn(`No settings found for vendor ${orderData.vendor_id}`);
+      return res.status(503).json({
+        success: false,
+        error: 'Vendor settings not configured. Please contact support.'
+      });
+    }
+
+    // Check if vendor is accepting orders
+    if (!vendorSettings.is_accepting_orders) {
+      console.log(`Vendor ${orderData.vendor_id} is not accepting orders`);
+      return res.status(503).json({
+        success: false,
+        error: 'This vendor is currently not accepting orders. Please try again later.'
+      });
+    }
+
+    // Check busy mode
+    if (vendorSettings.is_busy_mode) {
+      console.log(`Vendor ${orderData.vendor_id} is in busy mode`);
+      return res.status(503).json({
+        success: false,
+        error: 'This vendor is currently busy. Please try again in a few minutes.'
+      });
+    }
+
+    // Check maximum concurrent orders capacity
+    const { count: activeOrdersCount, error: countError } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('vendor_id', orderData.vendor_id)
+      .in('status', ['pending', 'accepted', 'preparing']);
+
+    if (countError) {
+      console.error('Error counting active orders:', countError);
+      // Don't block order creation for count errors, just log it
+    } else if (activeOrdersCount >= vendorSettings.max_concurrent_orders) {
+      console.log(`Vendor ${orderData.vendor_id} at max capacity: ${activeOrdersCount}/${vendorSettings.max_concurrent_orders}`);
+      return res.status(503).json({
+        success: false,
+        error: 'This vendor is at maximum capacity. Please try again later.'
+      });
+    }
+
+    // ============ QUEUE POSITION ASSIGNMENT ============
+    // Assign queue position for the new order
+    let queuePosition = null;
+    const { data: lastQueueOrder } = await supabase
+      .from('orders')
+      .select('queue_position')
+      .eq('vendor_id', orderData.vendor_id)
+      .not('queue_position', 'is', null)
+      .order('queue_position', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    queuePosition = lastQueueOrder && lastQueueOrder.queue_position 
+      ? lastQueueOrder.queue_position + 1 
+      : 1;
+
+    console.log(`Assigning queue position ${queuePosition} to new order for vendor ${orderData.vendor_id}`);
+
     // Generate sequential bill number for the vendor
     let billNumber = 1;
     if (orderData.vendor_id) {
@@ -66,7 +144,7 @@ router.post('/', async (req, res) => {
       scheduled_for: orderData.scheduled_for,
       special_instructions: orderData.special_instructions,
       group_order_id: orderData.group_order_id,
-      queue_position: orderData.queue_position,
+      queue_position: queuePosition, // Assigned above based on vendor queue
       bill_number: billNumber,
       bill_date: new Date().toISOString().split('T')[0], // Date only
       order_type: orderData.order_type || 'delivery'

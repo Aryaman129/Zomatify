@@ -334,7 +334,15 @@ export const orderService = {
   // Create a new order via backend API
   async createOrder(order: Omit<Order, 'id' | 'created_at' | 'updated_at'>): Promise<ApiResponse<Order>> {
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/orders`, {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+      if (!apiBaseUrl) {
+        return {
+          success: false,
+          error: 'API configuration missing. Please check environment variables.'
+        };
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -345,6 +353,14 @@ export const orderService = {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
+        // Special handling for vendor unavailable errors (503 Service Unavailable)
+        if (response.status === 503) {
+          return {
+            success: false,
+            error: result.error || 'Vendor is currently unavailable. Please try again later.'
+          };
+        }
+        
         return {
           success: false,
           error: result.error || 'Failed to create order'
@@ -569,7 +585,12 @@ export const orderService = {
         throw new Error('Vendor ID not found');
       }
 
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/vendor/orders/${orderId}/status`, {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+      if (!apiBaseUrl) {
+        throw new Error('API Base URL not configured');
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/vendor/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -606,7 +627,12 @@ export const orderService = {
         throw new Error('Vendor ID not found');
       }
 
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/vendor/orders/${orderId}/status`, {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+      if (!apiBaseUrl) {
+        throw new Error('API Base URL not configured');
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/vendor/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -945,7 +971,12 @@ export const paymentService = {
   // Create a new Razorpay order
   async createRazorpayOrder(amount: number, orderId: string): Promise<ApiResponse<PaymentResponse>> {
     try {
-      const resp = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000'}/api/payments/order`, {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+      if (!apiBaseUrl) {
+        return { success: false, error: 'API configuration missing. Please check environment variables.' };
+      }
+
+      const resp = await fetch(`${apiBaseUrl}/api/payments/order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount, orderReference: orderId, currency: 'INR' })
@@ -965,7 +996,12 @@ export const paymentService = {
     signature: string
   ): Promise<ApiResponse<{ verified: boolean }>> {
     try {
-      const resp = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000'}/api/payments/verify`, {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+      if (!apiBaseUrl) {
+        return { success: false, error: 'API configuration missing. Please check environment variables.' };
+      }
+
+      const resp = await fetch(`${apiBaseUrl}/api/payments/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId, orderId, signature })
@@ -985,7 +1021,12 @@ export const paymentService = {
     status: PaymentStatus
   ): Promise<ApiResponse<null>> {
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000'}/api/orders/${orderId}/payment`, {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+      if (!apiBaseUrl) {
+        return { success: false, error: 'API configuration missing. Please check environment variables.' };
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/payment`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

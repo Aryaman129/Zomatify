@@ -13,7 +13,12 @@ export const vendorApiService = {
         throw new Error('Vendor ID not found');
       }
 
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/vendor/orders/${orderId}/status`, {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+      if (!apiBaseUrl) {
+        throw new Error('API Base URL not configured. Please set REACT_APP_API_BASE_URL environment variable.');
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/vendor/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

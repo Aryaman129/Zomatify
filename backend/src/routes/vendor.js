@@ -189,13 +189,58 @@ router.patch('/orders/:orderId/status', async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    // ============ QUEUE MANAGEMENT ============
+    // Remove completed/cancelled orders from queue and shift remaining orders
+    if ((status === 'completed' || status === 'cancelled') && currentOrder.queue_position !== null) {
+      const removedQueuePosition = currentOrder.queue_position;
+      console.log(`Removing order ${orderId} from queue position ${removedQueuePosition}`);
+      
+      try {
+        // Remove this order from queue
+        await supabase
+          .from('orders')
+          .update({ queue_position: null })
+          .eq('id', orderId);
+        
+        // Shift all remaining orders down by 1
+        // This ensures no gaps in queue positions
+        const { data: ordersToShift, error: shiftError } = await supabase
+          .from('orders')
+          .select('id, queue_position')
+          .eq('vendor_id', vendorId)
+          .gt('queue_position', removedQueuePosition)
+          .not('queue_position', 'is', null)
+          .order('queue_position', { ascending: true });
+
+        if (shiftError) {
+          console.error('Error fetching orders to shift:', shiftError);
+        } else if (ordersToShift && ordersToShift.length > 0) {
+          console.log(`Shifting ${ordersToShift.length} orders down in queue`);
+          
+          // Update each order's queue position
+          for (const order of ordersToShift) {
+            await supabase
+              .from('orders')
+              .update({ queue_position: order.queue_position - 1 })
+              .eq('id', order.id);
+          }
+        }
+      } catch (queueError) {
+        console.error('Error managing queue:', queueError);
+        // Don't fail the status update if queue management fails
+      }
+    }
+
     // REFUND PROCESSING: When vendor cancels a paid order
     if (status === 'cancelled' && currentOrder.payment_status === 'paid' && currentOrder.payment_id) {
       try {
         console.log(`Processing refund for cancelled order ${orderId}, payment ${currentOrder.payment_id}`);
         
+        // Use dynamic base URL from environment or default to localhost:5000
+        const baseUrl = process.env.API_BASE_URL || 'http://localhost:5000';
+        
         // Call payment refund API
-        const refundResponse = await fetch('http://localhost:5001/api/payments/refund', {
+        const refundResponse = await fetch(`${baseUrl}/api/payments/refund`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
