@@ -9,6 +9,7 @@ import { Order } from '../types/index';
 import { format } from 'date-fns';
 import supabase from '../services/supabaseClient';
 import { useVendorAuth } from '../contexts/VendorAuthContext';
+import realtimeSync from '../services/realtimeSync';
 
 const Container = styled.div`
   min-height: 100vh;
@@ -265,6 +266,47 @@ const DeliveryVendorDashboard: React.FC = () => {
       }
     }
   }, [authLoading, vendorFromContext, navigate]);
+
+  // Setup realtime subscriptions for live order updates
+  useEffect(() => {
+    if (!vendor?.id) {
+      return;
+    }
+
+    console.log('📡 Setting up realtime subscriptions for DeliveryVendorDashboard');
+
+    const unsubscribeOrders = realtimeSync.subscribeToVendorOrders(
+      vendor.id,
+      (update) => {
+        console.log('📨 Delivery dashboard received order update:', update);
+
+        if (update.eventType === 'INSERT') {
+          // Only add if it's a delivery order and in active status
+          const newOrder = update.new;
+          if (newOrder.order_type === 'delivery' && 
+              ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'].includes(newOrder.status)) {
+            setOrders(prev => [newOrder, ...prev]);
+            toast.info('New delivery order received!');
+          }
+        } else if (update.eventType === 'UPDATE') {
+          setOrders(prev => prev.map(order =>
+            String(order.id) === String(update.new.id) ? update.new : order
+          ).filter(order => 
+            // Keep only active delivery orders
+            order.order_type === 'delivery' &&
+            ['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery'].includes(order.status)
+          ));
+        } else if (update.eventType === 'DELETE') {
+          setOrders(prev => prev.filter(order => String(order.id) !== String(update.old?.id)));
+        }
+      }
+    );
+
+    return () => {
+      console.log('🔌 Cleaning up DeliveryVendorDashboard realtime subscriptions');
+      unsubscribeOrders();
+    };
+  }, [vendor]);
 
   const loadDeliveryOrders = async (vendorId: string) => {
     // Strict validation

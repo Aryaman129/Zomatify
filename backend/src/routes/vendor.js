@@ -170,10 +170,12 @@ router.patch('/orders/:orderId/status', async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    // Add cancellation reason if status is cancelled
-    if (status === 'cancelled' && reason) {
-      updateData.cancellation_reason = reason;
-    }
+    // TODO: Add cancellation reason support after running migration
+    // Temporarily disabled until add_cancellation_reason_column.sql is executed
+    // This prevents 400 errors from trying to update non-existent column
+    // if (status === 'cancelled' && reason) {
+    //   updateData.cancellation_reason = reason;
+    // }
 
     // Update order status
     const { data, error } = await supabase
@@ -186,7 +188,35 @@ router.patch('/orders/:orderId/status', async (req, res) => {
 
     if (error) {
       console.error('Order status update error:', error);
-      return res.status(500).json({ success: false, error: error.message });
+      console.error('Error details:', { code: error.code, message: error.message, hint: error.hint });
+      
+      // Determine appropriate status code based on error type
+      let statusCode = 500;
+      let userMessage = error.message;
+      
+      // PostgreSQL error codes for 400 (Bad Request) scenarios:
+      // 23505: unique_violation - duplicate key value
+      // 23503: foreign_key_violation - invalid foreign key reference
+      // 22P02: invalid_text_representation - invalid input syntax
+      // 42703: undefined_column - column does not exist (needs migration)
+      // 42P01: undefined_table - table does not exist
+      
+      const badRequestCodes = ['23505', '23503', '22P02', '42703', '42P01'];
+      if (badRequestCodes.includes(error.code)) {
+        statusCode = 400;
+        
+        // Provide helpful message for missing column errors
+        if (error.code === '42703') {
+          userMessage = 'Database schema update required. Please run the migration: migrations/add_cancellation_reason_column.sql';
+        }
+      }
+      
+      return res.status(statusCode).json({ 
+        success: false, 
+        error: userMessage,
+        details: error.details || error.hint || 'Check your request data',
+        errorCode: error.code
+      });
     }
 
     // ============ QUEUE MANAGEMENT ============

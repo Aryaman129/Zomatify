@@ -9,6 +9,7 @@ import { Order } from '../types/index';
 import { format } from 'date-fns';
 import supabase from '../services/supabaseClient';
 import { useVendorAuth } from '../contexts/VendorAuthContext';
+import realtimeSync from '../services/realtimeSync';
 
 const Container = styled.div`
   min-height: 100vh;
@@ -285,6 +286,47 @@ const PickupVendorDashboard: React.FC = () => {
       }
     }
   }, [authLoading, vendorFromContext, navigate]);
+
+  // Setup realtime subscriptions for live order updates
+  useEffect(() => {
+    if (!vendor?.id) {
+      return;
+    }
+
+    console.log('📡 Setting up realtime subscriptions for PickupVendorDashboard');
+
+    const unsubscribeOrders = realtimeSync.subscribeToVendorOrders(
+      vendor.id,
+      (update) => {
+        console.log('📨 Pickup dashboard received order update:', update);
+
+        if (update.eventType === 'INSERT') {
+          // Only add if it's a pickup order and in active status
+          const newOrder = update.new;
+          if (newOrder.order_type === 'pickup' && 
+              ['pending', 'accepted', 'preparing', 'ready'].includes(newOrder.status)) {
+            setOrders(prev => [newOrder, ...prev]);
+            toast.info('New pickup order received!');
+          }
+        } else if (update.eventType === 'UPDATE') {
+          setOrders(prev => prev.map(order =>
+            String(order.id) === String(update.new.id) ? update.new : order
+          ).filter(order => 
+            // Keep only active pickup orders
+            order.order_type === 'pickup' &&
+            ['pending', 'accepted', 'preparing', 'ready'].includes(order.status)
+          ));
+        } else if (update.eventType === 'DELETE') {
+          setOrders(prev => prev.filter(order => String(order.id) !== String(update.old?.id)));
+        }
+      }
+    );
+
+    return () => {
+      console.log('🔌 Cleaning up PickupVendorDashboard realtime subscriptions');
+      unsubscribeOrders();
+    };
+  }, [vendor]);
 
   const loadPickupOrders = async (vendorId: string) => {
     // Strict validation

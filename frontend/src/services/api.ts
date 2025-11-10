@@ -603,10 +603,10 @@ export const orderService = {
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const responseData = await response.json();
       return {
         success: true,
-        data: data.order as Order
+        data: responseData.data as Order  // Backend returns order in 'data' field
       };
     } catch (error: any) {
       return {
@@ -645,10 +645,10 @@ export const orderService = {
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const responseData = await response.json();
       return {
         success: true,
-        data: data.order as Order
+        data: responseData.data as Order  // Backend returns order in 'data' field
       };
     } catch (error: any) {
       return {
